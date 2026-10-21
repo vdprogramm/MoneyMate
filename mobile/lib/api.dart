@@ -1,0 +1,126 @@
+import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+const apiBaseUrl = String.fromEnvironment('API_BASE_URL');
+const storage = FlutterSecureStorage();
+
+class Api {
+  late final Dio dio;
+  Api() {
+    dio = Dio(BaseOptions(
+      baseUrl: '${apiBaseUrl.replaceFirst(RegExp(r'/$'), '')}/api/v1',
+      connectTimeout: const Duration(seconds: 20),
+      receiveTimeout: const Duration(seconds: 35),
+      headers: {'Accept': 'application/json'},
+    ));
+    dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) async {
+      final token = await storage.read(key: 'jwt');
+      if (token != null && token.isNotEmpty) {
+        options.headers['Authorization'] = 'Bearer $token';
+      }
+      handler.next(options);
+    }));
+  }
+
+  Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) async =>
+      Map<String, dynamic>.from((await dio.post(path, data: body)).data as Map);
+  Future<List<Map<String, dynamic>>> getList(String path) async =>
+      ((await dio.get(path)).data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+  Future<Map<String, dynamic>> getMap(String path) async =>
+      Map<String, dynamic>.from((await dio.get(path)).data as Map);
+  Future<Map<String, dynamic>> put(String path, Map<String, dynamic> body) async =>
+      Map<String, dynamic>.from((await dio.put(path, data: body)).data as Map);
+  Future<void> delete(String path) async { await dio.delete(path); }
+}
+
+final apiProvider = Provider<Api>((ref) => Api());
+
+String apiError(Object error) {
+  if (error is DioException) {
+    final data = error.response?.data;
+    if (data is Map && data['error'] != null) return data['error'].toString();
+    final code = error.response?.statusCode;
+    if (code == 401) return 'Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.';
+    if (code == 403) return 'Bạn không có quyền truy cập dữ liệu này.';
+    if (code == 409) return 'Dữ liệu đã tồn tại.';
+    if (code != null && code >= 500) return 'Máy chủ đang bận. Thử lại sau.';
+    return 'Không thể kết nối đến máy chủ. Kiểm tra Internet và API.';
+  }
+  return error.toString();
+}
+
+class AuthState {
+  final bool loading;
+  final String? userEmail;
+  final String? displayName;
+  final bool loggedIn;
+  const AuthState({this.loading = false, this.userEmail, this.displayName, this.loggedIn = false});
+}
+
+class AuthController extends StateNotifier<AuthState> {
+  final Api api;
+  AuthController(this.api) : super(const AuthState(loading: true)) { restore(); }
+
+  Future<void> restore() async {
+    final token = await storage.read(key: 'jwt');
+    if (token == null || token.isEmpty) { state = const AuthState(); return; }
+    try {
+      final me = await api.getMap('/users/me');
+      state = AuthState(loggedIn: true, userEmail: '${me['email']}', displayName: '${me['displayName']}');
+    } catch (_) { await storage.delete(key: 'jwt'); state = const AuthState(); }
+  }
+
+  Future<void> login(String email, String password) async {
+    final body = await api.post('/auth/login', {'email': email.trim(), 'password': password});
+    await _persist(body);
+  }
+
+  Future<void> register(String name, String email, String password) async {
+    final body = await api.post('/auth/register', {'displayName': name.trim(), 'email': email.trim(), 'password': password});
+    await _persist(body);
+  }
+
+  Future<void> _persist(Map<String, dynamic> json) async {
+    await storage.write(key: 'jwt', value: '${json['token']}');
+    state = AuthState(loggedIn: true, userEmail: '${json['email']}', displayName: '${json['displayName']}');
+  }
+
+  Future<void> logout() async { await storage.delete(key: 'jwt'); state = const AuthState(); }
+}
+
+final authProvider = StateNotifierProvider<AuthController, AuthState>(
+  (ref) => AuthController(ref.read(apiProvider)),
+);
+
+final monthProvider = StateProvider<DateTime>((ref) {
+  final today = DateTime.now();
+  return DateTime(today.year, today.month);
+});
+String monthKey(DateTime date) => '${date.year}-${date.month.toString().padLeft(2, '0')}';
+
+final walletProvider = FutureProvider<List<Map<String, dynamic>>>((ref) {
+  ref.watch(authProvider.select((s) => '${s.loggedIn}:${s.userEmail}'));
+  return ref.read(apiProvider).getList('/wallets');
+});
+final transactionProvider = FutureProvider<List<Map<String, dynamic>>>((ref) {
+  ref.watch(authProvider.select((s) => '${s.loggedIn}:${s.userEmail}'));
+  return ref.read(apiProvider).getList('/transactions');
+});
+final budgetProvider = FutureProvider<List<Map<String, dynamic>>>((ref) {
+  ref.watch(authProvider.select((s) => '${s.loggedIn}:${s.userEmail}'));
+  final month = monthKey(ref.watch(monthProvider));
+  return ref.read(apiProvider).getList('/budgets?month=$month');
+});
+final summaryProvider = FutureProvider<Map<String, dynamic>>((ref) {
+  ref.watch(authProvider.select((s) => '${s.loggedIn}:${s.userEmail}'));
+  final month = monthKey(ref.watch(monthProvider));
+  return ref.read(apiProvider).getMap('/reports/summary?month=$month');
+});
+
+void refreshData(WidgetRef ref) {
+  ref.invalidate(walletProvider);
+  ref.invalidate(transactionProvider);
+  ref.invalidate(budgetProvider);
+  ref.invalidate(summaryProvider);
+}

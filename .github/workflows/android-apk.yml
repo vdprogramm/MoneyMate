@@ -1,0 +1,37 @@
+name: Build MoneyMate Android APK
+on:
+  workflow_dispatch:
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Generate native Android project
+        working-directory: mobile
+        run: flutter create . --platforms=android --project-name=moneymate
+      - name: Allow HTTPS requests from Android release
+        working-directory: mobile
+        run: python tool/configure_android.py
+      - name: Resolve Flutter packages
+        working-directory: mobile
+        run: flutter pub get
+      - name: Static analysis
+        working-directory: mobile
+        run: flutter analyze
+      - name: Build test-distribution APK
+        working-directory: mobile
+        env:
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+        run: |
+          test -n "$API_BASE_URL" || (echo "GitHub secret API_BASE_URL is missing" && exit 1)
+          case "$API_BASE_URL" in https://*) ;; *) echo "API_BASE_URL must use HTTPS"; exit 1 ;; esac
+          flutter build apk --release --dart-define="API_BASE_URL=$API_BASE_URL"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MoneyMate-Android-APK
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,14 @@
+.env
+*.jks
+*.keystore
+*.key
+*.pem
+mobile/.dart_tool/
+mobile/build/
+mobile/.flutter-plugins*
+mobile/.packages
+mobile/android/local.properties
+mobile/ios/Pods/
+backend/target/
+.idea/
+.vscode/
