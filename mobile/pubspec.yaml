@@ -16,6 +16,9 @@ dependencies:
   google_mlkit_text_recognition: 0.15.1
   pdf: 3.12.0
   printing: 5.14.3
+  # image 4.11.0 required archive API decodeLazy but mistakenly allowed archive 4.0.9.
+  # image 4.11.1 constrains archive >=4.4.0, fixing Flutter widget tests.
+  image: 4.11.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
