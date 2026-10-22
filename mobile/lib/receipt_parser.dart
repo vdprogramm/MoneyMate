@@ -57,7 +57,7 @@ ReceiptData parseReceiptText(String rawText) {
   for (final line in lines) {
     final fold=_fold(line);
     if (RegExp(r'(ma so thue|mst|dien thoai|so hoa don|invoice no|ma giao dich|ngay lap|ngay:|date:)')
-        .hasMatch(fold)) continue;
+        .hasMatch(fold)) { continue; }
     final total=markers.any(fold.contains);
     for (final m in _money.allMatches(line)) {
       final value=_amount(m.group(0)!);

@@ -36,7 +36,7 @@ Future<void> exportMonthlyPdf({
         style:pw.TextStyle(fontWeight:pw.FontWeight.bold,fontSize:13)),
       pw.SizedBox(height:8),
       if (entries.isEmpty) pw.Text('Tháng này chưa có giao dịch.')
-      else pw.Table.fromTextArray(
+      else pw.TableHelper.fromTextArray(
         headers:['Ngày','Loại','Danh mục','Số tiền','Ghi chú'],
         data:entries.map((e)=>[
           '${e['occurredOn']}',

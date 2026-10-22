@@ -286,8 +286,10 @@ class StatisticsTab extends ConsumerWidget {
                   summary: data, transactions: all,
                 );
               } catch (e) {
-                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Không xuất được PDF: ${apiError(e)}')));
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Không xuất được PDF: ${apiError(e)}')));
+                }
               }
             },
           ),
@@ -428,8 +430,10 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Đã điền dữ liệu. Kiểm tra danh mục và số tiền trước khi lưu.')));
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Không đọc được hóa đơn: $error')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Không đọc được hóa đơn: $error')));
+      }
     } finally {
       if (mounted) setState(() => saving = false);
     }
