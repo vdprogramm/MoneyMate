@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - '.github/workflows/cloud-smoke.yml'
+      - 'scripts/cloud_smoke.py'
 jobs:
   smoke:
     runs-on: ubuntu-latest
