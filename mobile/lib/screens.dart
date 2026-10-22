@@ -6,6 +6,7 @@ import 'api.dart';
 import 'package:image_picker/image_picker.dart';
 import 'receipt_scanner.dart';
 import 'report_export.dart';
+import 'offline_queue.dart';
 
 const brand = Color(0xFF5165E8);
 const dark = Color(0xFF172338);
@@ -96,15 +97,46 @@ class HomeShell extends ConsumerStatefulWidget {
   const HomeShell({super.key});
   @override ConsumerState<HomeShell> createState() => _HomeShellState();
 }
-class _HomeShellState extends ConsumerState<HomeShell> {
-  int index = 0;
+class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserver {
+  int index=0;
+  bool syncing=false;
+  int pendingCount=0;
+  @override void initState(){
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_)=>syncPending());
+  }
+  @override void dispose(){WidgetsBinding.instance.removeObserver(this);super.dispose();}
+  @override void didChangeAppLifecycleState(AppLifecycleState state){
+    if(state==AppLifecycleState.resumed)syncPending();
+  }
+  Future<void> syncPending()async{
+    if(syncing)return;
+    final email=ref.read(authProvider).userEmail;
+    if(email==null || email.isEmpty)return;
+    if(mounted)setState(()=>syncing=true);
+    try{
+      await OfflineQueue.sync(email,ref.read(apiProvider));
+      refreshData(ref);
+    }catch(_){
+      // Retain local drafts for a subsequent retry.
+    }finally{
+      final pending=await OfflineQueue.count(email);
+      if(mounted)setState((){syncing=false;pendingCount=pending;});
+    }
+  }
   @override Widget build(BuildContext context) {
     const titles = ['Tổng quan', 'Giao dịch', 'Ngân sách', 'Thống kê', 'Cá nhân'];
     return Scaffold(
       appBar: AppBar(title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('MoneyMate', style: TextStyle(fontSize: 13, color: brand, fontWeight: FontWeight.bold)),
         Text(titles[index], style: const TextStyle(color: dark, fontWeight: FontWeight.bold, fontSize: 23)),
-      ]), toolbarHeight: 72, actions: [IconButton(onPressed: () => refreshData(ref), icon: const Icon(Icons.refresh))]),
+      ]), toolbarHeight:72,actions:[
+        if(pendingCount>0) Center(child:Text(pendingCount.toString()+' chờ gửi',
+          style:const TextStyle(fontSize:12,color:red))),
+        IconButton(onPressed:syncing?null:syncPending,tooltip:'Đồng bộ offline',
+          icon:Icon(syncing?Icons.hourglass_top:Icons.sync)),
+        IconButton(onPressed:()=>refreshData(ref),icon:const Icon(Icons.refresh))]),
       body: IndexedStack(index: index, children: const [DashboardTab(), TransactionTab(), BudgetTab(), StatisticsTab(), ProfileTab()]),
       floatingActionButton: index == 0 || index == 1 ? FloatingActionButton.extended(
         backgroundColor: brand, foregroundColor: Colors.white, onPressed: () => showTransactionForm(context, ref),
@@ -199,7 +231,23 @@ class TransactionTab extends ConsumerWidget {
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, st) => loadError(e, () => ref.invalidate(transactionProvider)),
       data: (items) => ListView(padding: const EdgeInsets.fromLTRB(16, 12, 16, 110), children: [
-        Text('${items.length} giao dịch', style: const TextStyle(color: muted)), const SizedBox(height: 12),
+        Text(items.length.toString()+' giao dịch đã lên cloud',
+          style:const TextStyle(color:muted)),
+        FutureBuilder<List<Map<String,Object?>>>(
+          future:OfflineQueue.pending(ref.watch(authProvider).userEmail ?? ''),
+          builder:(context,snapshot){
+            final list=snapshot.data ?? [];
+            if(list.isEmpty)return const SizedBox.shrink();
+            return Padding(padding:const EdgeInsets.symmetric(vertical:12),
+              child:infoCard(child:Column(crossAxisAlignment:CrossAxisAlignment.start,
+                children:[
+                  Text(list.length.toString()+' giao dịch chờ đồng bộ',
+                    style:const TextStyle(color:red,fontWeight:FontWeight.bold)),
+                  const Text('Chưa cộng vào số dư. Chọn biểu tượng đồng bộ ở thanh tiêu đề.',
+                    style:TextStyle(color:muted,fontSize:12)),
+                ])));
+          }),
+        const SizedBox(height:12),
         if (items.isEmpty) infoCard(child: const Text('Chưa có giao dịch nào.')),
         ...items.map((e) => Dismissible(key: ValueKey(e['id']), direction: DismissDirection.endToStart,
           background: Container(margin: const EdgeInsets.only(bottom: 9), padding: const EdgeInsets.all(20),
@@ -336,7 +384,14 @@ class ProfileTab extends ConsumerWidget {
 }
 
 Future<void> showTransactionForm(BuildContext context, WidgetRef ref, {Map<String, dynamic>? current}) async {
-  final available = await ref.read(walletProvider.future);
+  final email=ref.read(authProvider).userEmail ?? '';
+  List<Map<String,dynamic>> available;
+  try{
+    available=await ref.read(walletProvider.future);
+    await OfflineQueue.rememberWallets(email,available);
+  }catch(_){
+    available=await OfflineQueue.wallets(email);
+  }
   if (available.isEmpty) {
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Hãy tạo ví trước.')));
     return;
@@ -448,11 +503,21 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
         'amount': double.parse(amount.text.trim()),'note': note.text.trim(),
         'occurredOn': DateFormat('yyyy-MM-dd').format(date),
       };
-      if (widget.current != null) {
-        await ref.read(apiProvider).put('/transactions/${widget.current!['id']}', payload);
-      } else { await ref.read(apiProvider).post('/transactions', payload); }
+      if(widget.current!=null){
+        await ref.read(apiProvider).put('/transactions/'+widget.current!['id'].toString(),payload);
+      }else{
+        final owner=ref.read(authProvider).userEmail ?? '';
+        if(owner.isEmpty)throw StateError('Cần đăng nhập');
+        // Persist first, before any network attempt, to survive lost responses.
+        await OfflineQueue.enqueue(owner,payload);
+        try{await OfflineQueue.sync(owner,ref.read(apiProvider));}catch(_){}
+      }
       refreshData(ref);
-      if (mounted) Navigator.pop(context);
+      if(mounted){
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:
+          Text('Giao dịch đã lưu. Nếu mất mạng sẽ tự gửi khi có mạng.')));
+      }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiError(e))));
     } finally { if (mounted) setState(() => saving = false); }

@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'offline_queue.dart';
 
 const apiBaseUrl = String.fromEnvironment('API_BASE_URL');
 const storage = FlutterSecureStorage();
@@ -99,9 +100,18 @@ final monthProvider = StateProvider<DateTime>((ref) {
 });
 String monthKey(DateTime date) => '${date.year}-${date.month.toString().padLeft(2, '0')}';
 
-final walletProvider = FutureProvider<List<Map<String, dynamic>>>((ref) {
+final walletProvider = FutureProvider<List<Map<String, dynamic>>>((ref) async {
   ref.watch(authProvider.select((s) => '${s.loggedIn}:${s.userEmail}'));
-  return ref.read(apiProvider).getList('/wallets');
+  final email=ref.read(authProvider).userEmail ?? '';
+  try{
+    final result=await ref.read(apiProvider).getList('/wallets');
+    await OfflineQueue.rememberWallets(email,result);
+    return result;
+  }catch(_){
+    final old=await OfflineQueue.wallets(email);
+    if(old.isNotEmpty)return old;
+    rethrow;
+  }
 });
 final transactionProvider = FutureProvider<List<Map<String, dynamic>>>((ref) {
   ref.watch(authProvider.select((s) => '${s.loggedIn}:${s.userEmail}'));

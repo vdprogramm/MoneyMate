@@ -1,7 +1,7 @@
 name: moneymate
 description: MoneyMate - Quan ly thu chi ca nhan, Flutter and Spring Boot cloud API
 publish_to: none
-version: 0.2.0+2
+version: 0.3.0+3
 environment:
   sdk: '>=3.5.0 <4.0.0'
 dependencies:
@@ -19,6 +19,9 @@ dependencies:
   # pdf 3.12.0 requires archive <4.1; image 4.11+ requires archive 4.4+.
   # Keep an older image release compatible with pdf and Flutter 3.47 until migration.
   image: 4.5.4
+  sqflite: ^2.4.2
+  path: ^1.9.1
+  uuid: ^4.5.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
