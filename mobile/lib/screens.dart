@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'api.dart';
+import 'package:image_picker/image_picker.dart';
+import 'receipt_scanner.dart';
+import 'report_export.dart';
 
 const brand = Color(0xFF5165E8);
 const dark = Color(0xFF172338);
@@ -271,6 +274,23 @@ class StatisticsTab extends ConsumerWidget {
                 )],
               ))),
           ])),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            label: const Text('Xuất báo cáo tháng ra PDF'),
+            onPressed: () async {
+              try {
+                final all = await ref.read(transactionProvider.future);
+                await exportMonthlyPdf(
+                  month: ref.read(monthProvider),
+                  summary: data, transactions: all,
+                );
+              } catch (e) {
+                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Không xuất được PDF: ${apiError(e)}')));
+              }
+            },
+          ),
           section('Danh mục chi tiêu'),
           if (entries.isEmpty) infoCard(child: const Text('Chưa có khoản chi trong tháng này.')),
           for (var i=0; i<entries.length; i++) Padding(padding: const EdgeInsets.only(bottom: 9),
@@ -348,6 +368,73 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
     note = TextEditingController(text: item?['note']?.toString() ?? '');
   }
   @override void dispose() {amount.dispose();note.dispose();super.dispose();}
+
+  Future<void> importReceipt() async {
+    final source = await showDialog<ImageSource>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Quét hóa đơn'),
+        content: const Text('Ảnh được nhận dạng trên thiết bị và không gửi lên API.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog), child: const Text('Hủy')),
+          TextButton.icon(onPressed: () => Navigator.pop(dialog, ImageSource.gallery),
+            icon: const Icon(Icons.photo_library_outlined), label: const Text('Thư viện')),
+          FilledButton.icon(onPressed: () => Navigator.pop(dialog, ImageSource.camera),
+            icon: const Icon(Icons.camera_alt_outlined), label: const Text('Camera')),
+        ],
+      ),
+    );
+    if (source == null || !mounted) return;
+    setState(() => saving = true);
+    try {
+      final scan = await scanReceipt(source);
+      if (scan == null || !mounted) return;
+      final accept = await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          title: const Text('Kiểm tra kết quả OCR'),
+          content: SingleChildScrollView(child: Column(
+            mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Cửa hàng: ${scan.merchant.isEmpty ? "Chưa nhận dạng" : scan.merchant}'),
+              const SizedBox(height: 8),
+              Text('Số tiền gợi ý: ${scan.amount == null ? "Không tìm thấy" : money(scan.amount)}',
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text(scan.hasTotalLabel ? 'Có dòng tổng tiền; hãy đối chiếu lại.'
+                : 'Không tìm thấy nhãn tổng tiền rõ ràng; cần kiểm tra kỹ số tiền.',
+                style: const TextStyle(color: muted)),
+              const SizedBox(height: 14),
+              const Text('Văn bản đã đọc:', style: TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              SelectableText(scan.rawText.length > 1000
+                ? '${scan.rawText.substring(0,1000)}…' : scan.rawText),
+            ],
+          )),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Bỏ qua')),
+            FilledButton(onPressed: () => Navigator.pop(dialog, true),
+              child: const Text('Điền vào biểu mẫu')),
+          ],
+        ),
+      );
+      if (!mounted || accept != true) return;
+      setState(() {
+        type = 'EXPENSE';
+        category = expenseCategories.first;
+        if (scan.amount != null) amount.text = scan.amount.toString();
+        if (scan.merchant.isNotEmpty) note.text = 'Hóa đơn: ${scan.merchant}';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Đã điền dữ liệu. Kiểm tra danh mục và số tiền trước khi lưu.')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Không đọc được hóa đơn: $error')));
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
   Future<void> save() async {
     if (!form.currentState!.validate()) return;
     setState(() => saving = true);
@@ -379,6 +466,12 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
             ButtonSegment(value: 'INCOME', label: Text('Thu nhập'), icon: Icon(Icons.arrow_downward)),
           ], selected: {type}, onSelectionChanged: (value) => setState(() { type = value.first;category = type == 'EXPENSE' ? expenseCategories.first : incomeCategories.first; })),
           const SizedBox(height: 13),
+          if (widget.current == null && type == 'EXPENSE') ...[
+            OutlinedButton.icon(onPressed: saving ? null : importReceipt,
+              icon: const Icon(Icons.document_scanner_outlined),
+              label: const Text('Quét hóa đơn bằng camera / thư viện')),
+            const SizedBox(height: 12),
+          ],
           TextFormField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: const InputDecoration(labelText: 'Số tiền (VND)'),
             validator: (text) => (double.tryParse(text?.trim() ?? '') ?? 0) <= 0 ? 'Nhập số tiền lớn hơn 0' : null),

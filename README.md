@@ -1,6 +1,6 @@
 # MoneyMate — Ứng dụng quản lý thu chi Flutter + Spring Boot
 
-> **Trạng thái: MVP code v0.1 (chưa deploy, chưa có URL demo hoặc APK được build).** Không sử dụng API localhost. Ứng dụng dùng URL HTTPS Render được truyền vào lúc build; PostgreSQL dùng Neon. Dữ liệu thật, không sử dụng mock trong UI.
+> **Trạng thái: MVP đã triển khai Render + Neon; Flutter Android v0.2.0 đang kiểm tra build.** Đã đạt 6 luồng nghiệm thu trên điện thoại và bài kiểm thử API cloud. API không dùng localhost.
 
 Thiết kế Figma: https://www.figma.com/design/KSq5FBb1GhBIDXw8bIMS3P
 
@@ -12,10 +12,11 @@ Thiết kế Figma: https://www.figma.com/design/KSq5FBb1GhBIDXw8bIMS3P
 - Dockerfile và `render.yaml` cho backend Render.
 - Smoke test cloud có kiểm tra chống truy cập chéo người dùng.
 
-## Chưa có trong MVP
+## Nâng cấp v0.2.0 — OCR và PDF
 
-- OCR hóa đơn, xuất PDF, đồng bộ ghi offline, notification push, phát hành iOS/App Store và APK signed chính thức. Đây là giai đoạn sau khi API cloud đầu tiên hoạt động.
-- Chưa có URL production hoặc cơ sở dữ liệu triển khai; **không khẳng định đã chạy deploy**.
+- **OCR:** Dùng camera hoặc chọn ảnh qua image_picker; Google ML Kit nhận dạng chữ trên Android; tự gợi ý số tiền và tên cửa hàng. Bắt buộc xác nhận thông tin, bấm Lưu giao dịch riêng. Không gửi ảnh lên backend.
+- **PDF:** Xuất báo cáo tháng gồm số dư, tổng thu, tổng chi và các giao dịch thật; chia sẻ qua Android. Font tiếng Việt Noto Sans tải qua Printing (lần đầu cần Internet).
+- **Chưa có:** SQLite offline sync, thông báo push, iOS chính thức và APK ký bằng keystore riêng. OCR/PDF cần kiểm thử trên máy Android thật.
 
 ## 1. Database Neon (cloud)
 
@@ -95,3 +96,13 @@ MVP này thiết kế sẵn để Docker build Spring Boot ngay trên Render; b�
 ## 8. Build APK ngay trên GitHub Actions (không cần máy bạn cài Flutter)
 
 Sau khi có URL Render thật, vào repository **Settings → Secrets and variables → Actions**, tạo secret `API_BASE_URL` có giá trị như `https://<service-cua-ban>.onrender.com`. Vào **Actions → Build MoneyMate Android APK → Run workflow**. Khi workflow thành công, tải artifact `MoneyMate-Android-APK` rồi cài APK lên điện thoại Android. Build mặc định là bản thử nghiệm, không phải bản ký phát hành Play Store.
+
+
+## Cloud & APK
+
+- Backend: https://moneymate-api-snmi.onrender.com
+- API health: https://moneymate-api-snmi.onrender.com/actuator/health
+- Neon project: MoneyMate, database: moneymate.
+- APK CI: https://github.com/vdprogramm/MoneyMate/actions/workflows/android-apk.yml
+- API smoke: https://github.com/vdprogramm/MoneyMate/actions/workflows/cloud-smoke.yml
+- Ảnh hóa đơn được nhận dạng trên điện thoại, không tải lên server; PDF chứa dữ liệu cá nhân, chỉ chia sẻ cho người tin cậy.
