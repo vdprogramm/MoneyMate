@@ -69,7 +69,21 @@ class AuthController extends StateNotifier<AuthState> {
     try {
       final me = await api.getMap('/users/me');
       state = AuthState(loggedIn: true, userEmail: '${me['email']}', displayName: '${me['displayName']}');
-    } catch (_) { await storage.delete(key: 'jwt'); state = const AuthState(); }
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 401) {
+        await storage.delete(key: 'jwt');
+        state = const AuthState();
+      } else {
+        // Offline restart: retain a previously authenticated account.
+        final email = await storage.read(key: 'user_email');
+        final name = await storage.read(key: 'display_name');
+        state = email == null || email.isEmpty
+          ? const AuthState()
+          : AuthState(loggedIn: true, userEmail: email, displayName: name);
+      }
+    } catch (_) {
+      state = const AuthState();
+    }
   }
 
   Future<void> login(String email, String password) async {
@@ -84,10 +98,17 @@ class AuthController extends StateNotifier<AuthState> {
 
   Future<void> _persist(Map<String, dynamic> json) async {
     await storage.write(key: 'jwt', value: '${json['token']}');
+    await storage.write(key: 'user_email', value: json['email'].toString().trim().toLowerCase());
+    await storage.write(key: 'display_name', value: json['displayName'].toString());
     state = AuthState(loggedIn: true, userEmail: '${json['email']}', displayName: '${json['displayName']}');
   }
 
-  Future<void> logout() async { await storage.delete(key: 'jwt'); state = const AuthState(); }
+  Future<void> logout() async {
+    await storage.delete(key: 'jwt');
+    await storage.delete(key: 'user_email');
+    await storage.delete(key: 'display_name');
+    state = const AuthState();
+  }
 }
 
 final authProvider = StateNotifierProvider<AuthController, AuthState>(
