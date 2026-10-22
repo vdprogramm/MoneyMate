@@ -132,7 +132,7 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
         const Text('MoneyMate', style: TextStyle(fontSize: 13, color: brand, fontWeight: FontWeight.bold)),
         Text(titles[index], style: const TextStyle(color: dark, fontWeight: FontWeight.bold, fontSize: 23)),
       ]), toolbarHeight:72,actions:[
-        if(pendingCount>0) Center(child:Text(pendingCount.toString()+' chờ gửi',
+        if(pendingCount>0) Center(child:Text('$pendingCount chờ gửi',
           style:const TextStyle(fontSize:12,color:red))),
         IconButton(onPressed:syncing?null:syncPending,tooltip:'Đồng bộ offline',
           icon:Icon(syncing?Icons.hourglass_top:Icons.sync)),
@@ -231,7 +231,7 @@ class TransactionTab extends ConsumerWidget {
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, st) => loadError(e, () => ref.invalidate(transactionProvider)),
       data: (items) => ListView(padding: const EdgeInsets.fromLTRB(16, 12, 16, 110), children: [
-        Text(items.length.toString()+' giao dịch đã lên cloud',
+        Text('${items.length} giao dịch đã lên cloud',
           style:const TextStyle(color:muted)),
         FutureBuilder<List<Map<String,Object?>>>(
           future:OfflineQueue.pending(ref.watch(authProvider).userEmail ?? ''),
@@ -241,7 +241,7 @@ class TransactionTab extends ConsumerWidget {
             return Padding(padding:const EdgeInsets.symmetric(vertical:12),
               child:infoCard(child:Column(crossAxisAlignment:CrossAxisAlignment.start,
                 children:[
-                  Text(list.length.toString()+' giao dịch chờ đồng bộ',
+                  Text('${list.length} giao dịch chờ đồng bộ',
                     style:const TextStyle(color:red,fontWeight:FontWeight.bold)),
                   const Text('Chưa cộng vào số dư. Chọn biểu tượng đồng bộ ở thanh tiêu đề.',
                     style:TextStyle(color:muted,fontSize:12)),
@@ -504,7 +504,7 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
         'occurredOn': DateFormat('yyyy-MM-dd').format(date),
       };
       if(widget.current!=null){
-        await ref.read(apiProvider).put('/transactions/'+widget.current!['id'].toString(),payload);
+        await ref.read(apiProvider).put('/transactions/${widget.current!['id']}',payload);
       }else{
         final owner=ref.read(authProvider).userEmail ?? '';
         if(owner.isEmpty)throw StateError('Cần đăng nhập');

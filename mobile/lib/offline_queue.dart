@@ -49,7 +49,7 @@ class OfflineQueue {
         count++;
       }on DioException catch(error){
         final code=error.response?.statusCode;
-        await (await db).update('outbox',{'error':code==null?'Mất mạng':'HTTP '+code.toString()},
+        await (await db).update('outbox',{'error':code==null?'Mất mạng':'HTTP $code'},
           where:'id=? AND owner=?',whereArgs:[id,owner(email)]);
         if(code==null || code>=500)break;
       }
