@@ -71,7 +71,32 @@ if __name__ == '__main__':
     status, budget = call('/api/v1/budgets', 'POST', {'category': 'Ăn uống', 'month': month, 'amount': 200000}, jwt=a)
     require(status, 200, 'upsert budget')
     require(budget['usedPercent'], 62, 'budget usage')
+    # Offline-safe idempotency: replay the same phone UUID and payload.
+    offline_id = str(uuid.uuid4())
+    offline_entry = {
+        'walletId': wallet, 'type': 'EXPENSE', 'category': 'Đi lại',
+        'amount': 65000, 'note': 'Offline idempotency', 'occurredOn': str(date.today()),
+    }
+    status, first = call('/api/v1/transactions/offline-sync', 'POST',
+                         {'clientId': offline_id, 'transaction': offline_entry}, jwt=a)
+    require(status, 200, 'offline initial sync')
+    require(first['id'], offline_id, 'offline assigned UUID')
+    status, again = call('/api/v1/transactions/offline-sync', 'POST',
+                         {'clientId': offline_id, 'transaction': offline_entry}, jwt=a)
+    require(status, 200, 'offline repeated sync')
+    require(again['id'], offline_id, 'offline repeated UUID')
+    status, conflict = call('/api/v1/transactions/offline-sync', 'POST',
+                            {'clientId': offline_id, 'transaction': dict(offline_entry, amount=66000)}, jwt=a)
+    require(status, 409, 'offline ID payload mismatch')
+    status, forbidden = call('/api/v1/transactions/offline-sync', 'POST',
+                             {'clientId': offline_id, 'transaction': dict(offline_entry, walletId=wallet)}, jwt=b)
+    require(status, 404, 'foreign wallet forbidden')
+    status, listing = call('/api/v1/transactions', jwt=a)
+    require(status, 200, 'offline listing')
+    require(sum(1 for item in listing if item['id'] == offline_id), 1, 'single synced entry')
+    status, deleted_offline = call('/api/v1/transactions/' + offline_id, 'DELETE', jwt=a)
+    require(status, 204, 'cleanup offline sync fixture')
     status, deleted = call(f"/api/v1/transactions/{entry['id']}", 'DELETE', jwt=a)
     require(status, 204, 'delete transaction')
-    print('PASS: HTTPS health, registration, wallet, transaction, report, budgets, authorization isolation, deletion')
+    print('PASS: HTTPS health, registration, wallet, transaction, report, budgets, authorization isolation, offline idempotency, deletion')
     print('NOTE: Two test accounts remain in the Neon database.')
