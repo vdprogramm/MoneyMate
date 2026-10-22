@@ -1,108 +1,123 @@
-# MoneyMate — Ứng dụng quản lý thu chi Flutter + Spring Boot
+# MoneyMate — Quản lý thu chi cá nhân (Android + Cloud)
 
-> **Trạng thái: MVP đã triển khai Render + Neon; Flutter Android v0.2.0 đang kiểm tra build.** Đã đạt 6 luồng nghiệm thu trên điện thoại và bài kiểm thử API cloud. API không dùng localhost.
+**Trạng thái: MoneyMate v0.3.0 — MVP hoàn thành và nghiệm thu trên Android ngày 22/10/2026.** Backend chạy trên Render, dữ liệu PostgreSQL lưu trên Neon. Không yêu cầu backend localhost. Đây là bản MVP/demo, **chưa phải bản phát hành thương mại hoặc Google Play**.
 
-Thiết kế Figma: https://www.figma.com/design/KSq5FBb1GhBIDXw8bIMS3P
+## Demo, mã nguồn và kết quả CI
 
-## Đã có trong MVP
+- **Repository:** https://github.com/vdprogramm/MoneyMate
+- **Thiết kế Figma:** https://www.figma.com/design/KSq5FBb1GhBIDXw8bIMS3P
+- **Backend HTTPS:** https://moneymate-api-snmi.onrender.com
+- **API Health Check:** https://moneymate-api-snmi.onrender.com/actuator/health
+- **APK Android v0.3 (CI Success):** https://github.com/vdprogramm/MoneyMate/actions/runs/39755315664
+- **Flutter analysis + tests (Success):** https://github.com/vdprogramm/MoneyMate/actions/runs/39755315762
+- **Backend Maven/JUnit (Success):** https://github.com/vdprogramm/MoneyMate/actions/runs/39754224582
+- **API cloud smoke test (Success):** https://github.com/vdprogramm/MoneyMate/actions/runs/39755128264
 
-- Flutter + Riverpod: đăng ký/đăng nhập, JWT trong secure storage, dashboard, 5 tab, biểu đồ danh mục `fl_chart`, quản lý ví, tạo/sửa/xóa giao dịch, cấu hình ngân sách và cảnh báo 90%, chuyển tháng.
-- Java 21 + Spring Boot: Spring Security, JWT HS256, BCrypt, REST API, lọc dữ liệu theo user, kiểm tra quyền sở hữu ví/giao dịch/ngân sách.
-- PostgreSQL Neon: script Flyway V1 khởi tạo bảng và chỉ số tự chạy lần đầu.
-- Dockerfile và `render.yaml` cho backend Render.
-- Smoke test cloud có kiểm tra chống truy cập chéo người dùng.
+**Tải APK:** Mở liên kết APK phía trên → Artifacts → MoneyMate-Android-APK → tải ZIP → giải nén → cài app-release.apk. Artifact của lần build này hết hạn ngày **05/11/2026**. Build test có thể không cập nhật đè lên APK khác chữ ký; cần kiểm tra và đồng bộ mọi khoản chi offline trước khi gỡ ứng dụng cũ.
 
-## Nâng cấp v0.2.0 — OCR và PDF
+## Bài toán và kiến trúc
 
-- **OCR:** Dùng camera hoặc chọn ảnh qua image_picker; Google ML Kit nhận dạng chữ trên Android; tự gợi ý số tiền và tên cửa hàng. Bắt buộc xác nhận thông tin, bấm Lưu giao dịch riêng. Không gửi ảnh lên backend.
-- **PDF:** Xuất báo cáo tháng gồm số dư, tổng thu, tổng chi và các giao dịch thật; chia sẻ qua Android. Font tiếng Việt Noto Sans tải qua Printing (lần đầu cần Internet).
-- **Chưa có:** SQLite offline sync, thông báo push, iOS chính thức và APK ký bằng keystore riêng. OCR/PDF cần kiểm thử trên máy Android thật.
+MoneyMate giúp theo dõi ví tiền, khoản thu/chi, ngân sách và thống kê theo tháng. Khi điện thoại mất mạng, một khoản chi mới được lưu trước vào SQLite; sau đó gửi qua HTTPS tới API khi kết nối được khôi phục.
 
-## 1. Database Neon (cloud)
+**Kiến trúc:** Flutter + Riverpod → Spring Boot Java 21 (Render) → PostgreSQL (Neon).
 
-1. Tạo dự án PostgreSQL tên `MoneyMate` trên [Neon](https://console.neon.tech/).
-2. Vào **Connect** và lấy host, database, user và password của role. Chọn kết nối pooler nếu dùng Render. Với Neon yêu cầu TLS `sslmode=require`.
-3. Trên Render tạo 3 biến riêng tư:
+**Offline:** Flutter → SQLite Outbox (tách theo email tài khoản) → POST /api/v1/transactions/offline-sync → Neon.
 
-   - `JDBC_DATABASE_URL=jdbc:postgresql://YOUR-NEON-HOST/NEON-DB?sslmode=require` (đây **phải là JDBC URL**, không phải URL `postgresql://user:password@host/db`).
-   - `DB_USERNAME=YOUR-NEON-ROLE`
-   - `DB_PASSWORD=YOUR-NEON-PASSWORD`
+Mỗi khoản thu/chi offline mang UUID được tạo trên thiết bị và giữ nguyên qua các lần retry. API sử dụng insert idempotent nên cùng UUID và nội dung chỉ tạo một giao dịch; UUID trùng với nội dung khác bị từ chối thay vì ghi đè.
 
-**Không** commit mật khẩu, DATABASE_URL có credential, JWT secret vào GitHub hay README. Flyway tạo bảng ở lần chạy đầu tiên.
+## Chức năng đã triển khai
 
-## 2. Render (backend online)
+- **Xác thực:** Đăng ký, đăng nhập, đăng xuất; BCrypt và JWT HS256, token cất trong Flutter Secure Storage.
+- **Dashboard:** Tổng số dư, tổng thu/chi và giao dịch gần đây.
+- **Ví:** Tạo và xem số dư ví; chọn ví khi nhập thu/chi.
+- **Giao dịch:** Tạo, sửa, xóa, gán ví và danh mục, chọn ngày và ghi chú.
+- **Ngân sách:** Hạn mức tháng, tỷ lệ đã dùng và cảnh báo từ 90%.
+- **Thống kê:** Biểu đồ danh mục chi tiêu và chọn tháng.
+- **OCR (v0.2):** Chụp/chọn hóa đơn qua Android, nhận dạng chữ bằng Google ML Kit trên thiết bị, đề xuất cửa hàng và số tiền; luôn yêu cầu kiểm tra thủ công và nhấn lưu. Không upload ảnh hóa đơn lên backend.
+- **PDF (v0.2):** Báo cáo thu/chi theo tháng dựa trên dữ liệu API thật, có chức năng chia sẻ.
+- **Offline (v0.3):** SQLite lưu giao dịch mới khi mất mạng và sau khi đóng/mở app, hàng đợi tách theo tài khoản, cache danh sách ví, nút đồng bộ và thử đồng bộ khi app tiếp tục chạy.
+- **Bảo vệ dữ liệu backend:** Phân quyền theo chủ sở hữu; người dùng không được sửa/xóa giao dịch của người khác.
+- **DevOps:** Docker trên Render, Neon PostgreSQL, Flyway migration, GitHub Actions cho Java/Flutter/API cloud và Android APK.
 
-1. Tạo repo GitHub `MoneyMate`, đưa toàn bộ nội dung vào nhánh `main`.
-2. Render → **New → Blueprint** → chọn repo và `render.yaml`.
-3. Điền ba biến Neon ở trên; `JWT_SECRET` được Render sinh ngẫu nhiên theo Blueprint.
-4. Đợi `/actuator/health` trả `{"status":"UP"}`. API có tiền tố `/api/v1`.
-5. URL API sẽ là URL HTTPS thực được Render cấp, ví dụ `https://moneymate-api-xxxx.onrender.com` (chỉ ví dụ, chưa có thật).
+### API chính
 
-Lưu ý Render Free có thể sleep sau thời gian không có request, khiến lần gọi đầu chậm. Không kiểm tra ứng dụng bằng cách truy cập root `/` — hãy kiểm tra `/actuator/health`.
+| Method | Endpoint | Chức năng |
+| --- | --- | --- |
+| POST | /api/v1/auth/register | Tạo tài khoản |
+| POST | /api/v1/auth/login | Đăng nhập |
+| GET | /api/v1/users/me | Xem tài khoản hiện tại |
+| GET, POST | /api/v1/wallets | Danh sách và tạo ví |
+| GET, POST | /api/v1/transactions | Danh sách và tạo giao dịch online |
+| PUT, DELETE | /api/v1/transactions/{id} | Sửa/xóa giao dịch |
+| POST | /api/v1/transactions/offline-sync | Nhận UUID cố định từ thiết bị, đồng bộ idempotent |
+| GET, POST | /api/v1/budgets | Ngân sách; GET dùng month=YYYY-MM |
+| DELETE | /api/v1/budgets/{id} | Xóa ngân sách |
+| GET | /api/v1/reports/summary?month=YYYY-MM | Báo cáo tháng |
+| GET | /api/v1/categories | Danh mục |
+| GET | /actuator/health | Healthcheck |
 
-## 3. Build app Flutter Android thật, không cần localhost
+Tất cả API nghiệp vụ yêu cầu Bearer JWT, trừ auth và healthcheck.
 
-Yêu cầu Flutter SDK, Android Studio + Android SDK, Dart 3.5+ trên máy build. Source Flutter đã có ở `mobile/lib/` và `mobile/pubspec.yaml`. Do môi trường tạo project chưa có Flutter SDK nên các platform runner (`android/`, `ios/`) cần được sinh bằng Flutter CLI:
+## Kết quả kiểm thử
 
-```bash
-cd mobile
-flutter create . --platforms=android,ios --project-name=moneymate
-python tool/configure_android.py
-flutter pub get
-flutter run --dart-define=API_BASE_URL=https://YOUR-REAL-RENDER-URL.onrender.com
-flutter build apk --release --dart-define=API_BASE_URL=https://YOUR-REAL-RENDER-URL.onrender.com
-```
+### Android — nghiệm thu thủ công
 
-APK đầu ra sau khi build thành công: `mobile/build/app/outputs/flutter-apk/app-release.apk`. Phải thay URL ví dụ bằng URL Render được cấp thực tế. **Không dùng `http://localhost`, `127.0.0.1` hoặc IP LAN**.
+**6/6 luồng MVP ban đầu đạt:** Đăng ký, đăng nhập, Dashboard; tạo ví; ghi thu/chi và kiểm tra số dư; ngân sách; biểu đồ thống kê; đăng xuất/đăng nhập lại.
 
-Nếu `API_BASE_URL` trống hoặc không bắt đầu bằng `https://`, app hiện thông báo cấu hình thay vì hiển thị dữ liệu demo giả.
+**5/5 luồng OCR/PDF v0.2 đạt:** Đăng nhập, mở OCR, nhận dạng số tiền hóa đơn, lưu giao dịch OCR, xuất PDF.
 
-## 4. Thử nghiệm sau khi deploy
+**5/5 luồng offline v0.3 đạt (22/10/2026):**
 
-```bash
-API_BASE_URL=https://YOUR-REAL-RENDER-URL.onrender.com python scripts/cloud_smoke.py
-```
+1. Cài và đăng nhập khi có mạng.
+2. Bật chế độ máy bay.
+3. Tạo khoản chi 50.000 VND và lưu offline.
+4. Đóng/mở lại app, thấy giao dịch chờ đồng bộ.
+5. Bật lại mạng, đồng bộ và xác nhận khoản chi chỉ xuất hiện **một lần**.
 
-Script tạo 2 user test trên Neon, kiểm tra health, auth, ví, thêm/xóa giao dịch, ngân sách, thống kê và chống user B sửa giao dịch user A. Hãy chỉ chạy trên môi trường demo/test; script cố ý để lại tài khoản test phục vụ đối soát.
+### Tự động
 
-## 5. API
+- Flutter analysis và widget/unit tests: Success.
+- Android APK release build: Success; có artifact.
+- Backend Maven/JUnit: Success.
+- Cloud smoke test: Success, gồm JWT, ví, giao dịch, báo cáo, ngân sách, kiểm tra quyền giữa người dùng và UUID offline gửi lặp.
+- Render API deploy: Live.
 
-| Method | URL | Ghi chú |
-|---|---|---|
-| POST | `/api/v1/auth/register` | Công khai |
-| POST | `/api/v1/auth/login` | Công khai |
-| GET | `/api/v1/users/me` | Bearer JWT |
-| GET, POST | `/api/v1/wallets` | Xem và thêm ví |
-| GET, POST | `/api/v1/transactions` | Thu/chi |
-| PUT, DELETE | `/api/v1/transactions/{id}` | Sửa/xóa |
-| GET, POST | `/api/v1/budgets?month=YYYY-MM` | Xem/cấu hình |
-| DELETE | `/api/v1/budgets/{id}` | Xóa |
-| GET | `/api/v1/reports/summary?month=YYYY-MM` | Số dư, chi/thu, danh mục |
-| GET | `/api/v1/categories` | Danh mục mẫu |
-| GET | `/actuator/health` | Healthcheck công khai |
+**Phạm vi:** Các luồng trên đạt. Chưa có bằng chứng kiểm thử toàn bộ điện thoại, phiên token hết hạn, mạng rất chập chờn, đồng bộ trên nhiều thiết bị hoặc sao lưu/khôi phục.
 
-## 6. Quy tắc nghiệp vụ
+## Cách build Android
 
-- Các khoản thu và chi có `amount > 0`, `type = INCOME/EXPENSE`, `occurredOn` là ngày phát sinh. Số tiền ở Postgres dùng NUMERIC(19,2).
-- Số dư một ví = số dư mở đầu + tổng thu – tổng chi. Tổng số dư dashboard = tổng số dư các ví.
-- Ngân sách chỉ tính những khoản `EXPENSE` cùng danh mục, cùng tháng, cùng user.
-- Dữ liệu của user khác luôn trả `404` khi thử sửa/xóa bằng ID; JWT không thay thế kiểm tra owner.
-- Không hỗ trợ ghi offline ở bản v0.1: cần mạng và API cloud đang hoạt động để thêm khoản thu chi.
+GitHub Actions tự build APK; không bắt buộc cài Flutter trên máy cá nhân. Nếu muốn chạy SDK tại máy build, thao tác ở thư mục mobile:
 
-## 7. Chạy backend chỉ trên cloud
+    flutter create . --platforms=android --project-name=moneymate
+    python tool/configure_android.py
+    flutter pub get
+    flutter analyze
+    flutter test
+    flutter build apk --release --dart-define=API_BASE_URL=https://moneymate-api-snmi.onrender.com
 
-MVP này thiết kế sẵn để Docker build Spring Boot ngay trên Render; bạn **không cần khởi chạy backend ở localhost**. Cần repo + Neon + Render kết nối thực tế. Không có mật khẩu demo hardcoded.
+APK nằm trong thư mục mobile/build/app/outputs/flutter-apk.
 
-## 8. Build APK ngay trên GitHub Actions (không cần máy bạn cài Flutter)
+## Backend Render và Neon
 
-Sau khi có URL Render thật, vào repository **Settings → Secrets and variables → Actions**, tạo secret `API_BASE_URL` có giá trị như `https://<service-cua-ban>.onrender.com`. Vào **Actions → Build MoneyMate Android APK → Run workflow**. Khi workflow thành công, tải artifact `MoneyMate-Android-APK` rồi cài APK lên điện thoại Android. Build mặc định là bản thử nghiệm, không phải bản ký phát hành Play Store.
+- **Render:** Web Service moneymate-api, Docker, URL ở đầu tài liệu. Gói miễn phí có thể sleep khiến request đầu tiên chậm.
+- **Neon:** Project MoneyMate, database moneymate. PostgreSQL migration qua Flyway.
+- **Cấu hình bí mật chỉ trên Render:** JDBC_DATABASE_URL, DB_USERNAME, DB_PASSWORD, JWT_SECRET (tối thiểu 32 UTF-8 byte).
+- **Không commit** chuỗi kết nối chứa mật khẩu, token, JWT secret hoặc tài khoản người dùng thật.
+- Dịch vụ Render hiện dùng **Manual Deploy**: commit Java mới lên GitHub không đồng nghĩa đã cập nhật dịch vụ; phải kiểm tra commit đang live trên Render.
+- Script scripts/cloud_smoke.py dùng tài khoản thử nghiệm; tránh chạy lặp trên database sản xuất vì script tạo thêm dữ liệu thử nghiệm.
 
+## Giới hạn còn lại — chưa production-ready
 
-## Cloud & APK
+1. **Mã hóa dữ liệu cục bộ:** SQLite hiện lưu payload giao dịch dưới dạng dữ liệu ứng dụng chưa được mã hóa riêng; nên thêm bảo vệ dữ liệu offline, sao lưu và xóa dữ liệu theo quy tắc.
+2. **Xử lý lỗi đồng bộ:** Lỗi 4xx (giao dịch không hợp lệ, thiếu quyền, ví bị xóa, token hết hạn hoặc xung đột UUID) có thể giữ bản ghi trong hàng đợi. Cần UI chi tiết để xem, sửa, thử lại, hủy có xác nhận mà không mất dữ liệu.
+3. **Phạm vi offline:** V0.3 chỉ hỗ trợ tạo mới thu/chi offline và cache danh sách ví; xem đầy đủ lịch sử, dashboard, ngân sách, sửa/xóa giao dịch vẫn cần cloud.
+4. **Phát hành:** Chưa có Google Play release, keystore phát hành ổn định, privacy policy, telemetry/crash reporting và kiểm thử đa thiết bị.
+5. **Tin cậy & bảo mật:** Cần backup/restore, kiểm thử mất mạng khi request đã được server xử lý, JWT expiration/refresh, rate-limiting, dependency/security audit và đánh giá hiệu năng.
 
-- Backend: https://moneymate-api-snmi.onrender.com
-- API health: https://moneymate-api-snmi.onrender.com/actuator/health
-- Neon project: MoneyMate, database: moneymate.
-- APK CI: https://github.com/vdprogramm/MoneyMate/actions/workflows/android-apk.yml
-- API smoke: https://github.com/vdprogramm/MoneyMate/actions/workflows/cloud-smoke.yml
-- Ảnh hóa đơn được nhận dạng trên điện thoại, không tải lên server; PDF chứa dữ liệu cá nhân, chỉ chia sẻ cho người tin cậy.
+Các giới hạn trên không phủ nhận 5/5 bước offline đã đạt; chúng là tiêu chí để nâng lên bản phát hành rộng rãi.
+
+## Mô tả dự án cho CV / Portfolio
+
+**MoneyMate — Personal Finance Android App** (Flutter, Riverpod, Java Spring Boot, PostgreSQL/Neon, Render)
+
+Built an Android personal-finance application with JWT authentication, wallet management, income and expense tracking, monthly budgets and charts, on-device receipt OCR and PDF reporting. Implemented an SQLite offline transaction outbox with UUID-based idempotent synchronization to prevent duplicate expenses on network retries. Deployed the Spring Boot API to Render backed by Neon PostgreSQL; automated testing and Android APK builds with GitHub Actions.
