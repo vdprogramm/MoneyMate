@@ -13,6 +13,7 @@ final class ApiDtos {
     record WalletRequest(@NotBlank @Size(max=80) String name,@NotNull @DecimalMin("0.00") BigDecimal openingBalance) {}
     record WalletView(UUID id,String name,BigDecimal openingBalance,BigDecimal balance) {}
     record EntryRequest(@NotNull UUID walletId,@NotBlank String type,@NotBlank @Size(max=50) String category,@NotNull @DecimalMin("0.01") BigDecimal amount,@Size(max=500) String note,@NotNull LocalDate occurredOn) {}
+    record OfflineEntryRequest(@NotNull UUID clientId,@Valid @NotNull EntryRequest transaction) {}
     record EntryView(UUID id,UUID walletId,String type,String category,BigDecimal amount,String note,LocalDate occurredOn) {}
     record BudgetRequest(@NotBlank @Size(max=50) String category,@NotBlank String month,@NotNull @DecimalMin("0.01") BigDecimal amount) {}
     record BudgetView(UUID id,String category,String month,BigDecimal amount,BigDecimal spent,int usedPercent) {}

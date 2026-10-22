@@ -60,6 +60,37 @@ class MoneyController {
         MoneyEntry e=new MoneyEntry(id,request.walletId(),checkType(request.type()),request.category().strip(),money(request.amount()),request.note(),request.occurredOn());
         return view(entries.save(e));
     }
+    /**
+     * Cloud sync is idempotent across timeouts/retries/concurrent Android clients.
+     * UUID is generated on the phone before the very first send. Never create
+     * another ID when retrying the same transaction.
+     */
+    @PostMapping("/transactions/offline-sync") @Transactional
+    EntryView syncOfflineEntry(Authentication a,@Valid @RequestBody OfflineEntryRequest request){
+        UUID uid=owner(a);
+        EntryRequest input=request.transaction();
+        checkWallet(input.walletId(),uid);
+        String type=checkType(input.type());
+        BigDecimal value=money(input.amount());
+        String category=input.category().strip();
+        String note=input.note();
+        // INSERT ... ON CONFLICT is atomic, and does not double-count retries.
+        entries.insertOfflineOnce(request.clientId(),uid,input.walletId(),type,category,
+            value,note,input.occurredOn());
+        MoneyEntry current=entries.findByIdAndOwnerId(request.clientId(),uid)
+          .orElseThrow(()->new ResponseStatusException(HttpStatus.CONFLICT,
+            "ID giao dịch đã thuộc tài khoản khác"));
+        // A reused UUID with different content is a conflict, not an overwrite.
+        if(!current.walletId.equals(input.walletId()) ||
+           !current.type.equals(type) || !current.category.equals(category) ||
+           current.amount.compareTo(value)!=0 ||
+           !Objects.equals(current.note,note) || !current.occurredOn.equals(input.occurredOn())){
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+              "ID giao dịch đã được dùng với nội dung khác");
+        }
+        return view(current);
+    }
+
     @PutMapping("/transactions/{id}") @Transactional
     EntryView updateEntry(Authentication a,@PathVariable UUID id,@Valid @RequestBody EntryRequest request){
         UUID uid=owner(a);MoneyEntry e=entries.findByIdAndOwnerId(id,uid).orElseThrow(this::notFound);

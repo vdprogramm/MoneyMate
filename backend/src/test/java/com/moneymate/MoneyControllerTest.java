@@ -35,6 +35,26 @@ class MoneyControllerTest {
         verify(wallets).findByIdAndOwnerId(walletId,userId);
     }
 
+    @Test void offlineTransactionReplayDoesNotCreateSecondEntry(){
+        UUID userId=UUID.randomUUID(),walletId=UUID.randomUUID(),clientId=UUID.randomUUID();
+        when(authentication.getName()).thenReturn(userId.toString());
+        when(wallets.findByIdAndOwnerId(walletId,userId))
+            .thenReturn(Optional.of(new Wallet(userId,"Ví",BigDecimal.ZERO)));
+        var body=new ApiDtos.EntryRequest(walletId,"EXPENSE","Ăn uống",
+            new BigDecimal("45000"),"Offline",LocalDate.now());
+        var entry=new MoneyEntry(userId,walletId,"EXPENSE","Ăn uống",
+            new BigDecimal("45000.00"),"Offline",LocalDate.now());
+        entry.id=clientId;
+        when(entries.findByIdAndOwnerId(clientId,userId)).thenReturn(Optional.of(entry));
+        var request=new ApiDtos.OfflineEntryRequest(clientId,body);
+        var first=controller.syncOfflineEntry(authentication,request);
+        var second=controller.syncOfflineEntry(authentication,request);
+        assertEquals(first.id(),second.id());
+        verify(entries,times(2)).insertOfflineOnce(eq(clientId),eq(userId),
+            eq(walletId),eq("EXPENSE"),eq("Ăn uống"),eq(new BigDecimal("45000.00")),
+            eq("Offline"),eq(LocalDate.now()));
+    }
+
     @Test void cannotEditOtherUsersTransaction(){
         UUID intruder=UUID.randomUUID(), entryId=UUID.randomUUID();
         when(authentication.getName()).thenReturn(intruder.toString());
