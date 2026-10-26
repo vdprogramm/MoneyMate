@@ -14,9 +14,29 @@ class MoneyMateApp extends ConsumerWidget {
       title: 'MoneyMate', debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFF7F8FC),
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF5165E8)),
-        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFFF7F8FC), centerTitle: false),
+        scaffoldBackgroundColor: const Color(0xFFF5F6FA),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF2147D7),
+          primary: const Color(0xFF2147D7),
+          surface: Colors.white,
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFFF5F6FA),
+          surfaceTintColor: Colors.transparent,
+          centerTitle: false,
+          elevation: 0,
+        ),
+        navigationBarTheme: NavigationBarThemeData(
+          backgroundColor: Colors.white,
+          indicatorColor: const Color(0xFFE8EEFF),
+          height: 72,
+          labelTextStyle: WidgetStateProperty.resolveWith((states) =>
+            TextStyle(
+              fontSize: 11,
+              fontWeight: states.contains(WidgetState.selected) ? FontWeight.w800 : FontWeight.w500,
+              color: states.contains(WidgetState.selected) ? const Color(0xFF2147D7) : const Color(0xFF7B8498),
+            )),
+        ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
           contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
