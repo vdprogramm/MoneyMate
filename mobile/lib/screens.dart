@@ -178,10 +178,16 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
           icon:Icon(syncing?Icons.hourglass_top:Icons.sync)),
         IconButton(onPressed:()=>refreshData(ref),icon:const Icon(Icons.refresh))]),
       body: IndexedStack(index: index, children: const [DashboardTab(), TransactionTab(), BudgetTab(), StatisticsTab(), ProfileTab()]),
-      floatingActionButton: index == 0 || index == 1 ? FloatingActionButton.extended(
-        backgroundColor: brand, foregroundColor: Colors.white, onPressed: () => showTransactionForm(context, ref),
-        icon: const Icon(Icons.add), label: const Text('Giao dịch'),
-      ) : null,
+      floatingActionButton: index == 0 || index == 1
+          ? FloatingActionButton(
+              tooltip: 'Thêm giao dịch',
+              backgroundColor: brand,
+              foregroundColor: Colors.white,
+              elevation: 5,
+              onPressed: () => showTransactionForm(context, ref),
+              child: const Icon(Icons.add_rounded, size: 30),
+            )
+          : null,
       bottomNavigationBar: NavigationBar(height: 75, selectedIndex: index, onDestinationSelected: (value) => setState(() => index = value),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Tổng quan'),
@@ -890,8 +896,21 @@ Future<void> showTransactionForm(BuildContext context, WidgetRef ref, {Map<Strin
     return;
   }
   if (!context.mounted) return;
-  await showModalBottomSheet<void>(context: context, isScrollControlled: true, useSafeArea: true,
-    builder: (_) => _TransactionForm(wallets: available, current: current));
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => Container(
+      height: MediaQuery.of(sheetContext).size.height * 0.96,
+      clipBehavior: Clip.antiAlias,
+      decoration: const BoxDecoration(
+        color: canvas,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: _TransactionForm(wallets: available, current: current),
+    ),
+  );
 }
 
 class _TransactionForm extends ConsumerStatefulWidget {
