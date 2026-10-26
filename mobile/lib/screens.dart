@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -5,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'api.dart';
 import 'package:image_picker/image_picker.dart';
 import 'receipt_scanner.dart';
+import 'receipt_parser.dart';
 import 'report_export.dart';
 import 'offline_queue.dart';
 
@@ -630,9 +632,10 @@ class DashboardTab extends ConsumerWidget {
                     ],
                   ),
                 ),
-              ...recent.map(
-                (item) => EntryTile(Map<String, dynamic>.from(item as Map)),
-              ),
+              ...recent.map((item) {
+                final transaction = Map<String, dynamic>.from(item as Map);
+                return InkWell(onTap: () => showTransactionDetail(context, ref, transaction), child: EntryTile(transaction));
+              }),
             ],
           );
         },
@@ -759,7 +762,7 @@ class TransactionTab extends ConsumerWidget {
           onDismissed: (_) async {
             try { await ref.read(apiProvider).delete('/transactions/${e['id']}'); refreshData(ref); }
             catch (error) { if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiError(error)))); refreshData(ref); }
-          }, child: InkWell(onTap: () => showTransactionForm(context, ref, current: e), child: EntryTile(e)),
+          }, child: InkWell(onTap: () => showTransactionDetail(context, ref, e), child: EntryTile(e)),
         )),
       ]),
     );
@@ -865,7 +868,24 @@ class ProfileTab extends ConsumerWidget {
         Text(account.displayName ?? 'Tài khoản', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         Text(account.userEmail ?? '', style: const TextStyle(color: muted)),
       ])),
-      section('Ví của tôi'),
+      section('Trung tâm tiện ích'),
+      GridView.count(
+        crossAxisCount: 2, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+        crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 1.55,
+        children: [
+          _ProfileShortcut(icon: Icons.account_balance_wallet_rounded, title: 'Quản lý ví', subtitle: 'Số dư từng ví',
+            tint: const Color(0xFFE8EEFF), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletsScreen()))),
+          _ProfileShortcut(icon: Icons.document_scanner_rounded, title: 'Quét hóa đơn', subtitle: 'Nhận dạng OCR',
+            tint: const Color(0xFFFFE8E9), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReceiptScanScreen()))),
+          _ProfileShortcut(icon: Icons.picture_as_pdf_rounded, title: 'Báo cáo PDF', subtitle: 'Xuất theo tháng',
+            tint: const Color(0xFFE1F7EE), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen()))),
+          _ProfileShortcut(icon: Icons.sync_rounded, title: 'Đồng bộ offline', subtitle: 'Giao dịch chờ gửi',
+            tint: const Color(0xFFFFF1D7), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const OfflineSyncScreen()))),
+          _ProfileShortcut(icon: Icons.settings_rounded, title: 'Cài đặt', subtitle: 'Quyền riêng tư',
+            tint: const Color(0xFFF0EAFE), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()))),
+        ],
+      ),
+      section('Ví gần đây'),
       wallets.when(loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, s) => loadError(e, () => ref.invalidate(walletProvider)),
         data: (items) => Column(children: [
@@ -882,7 +902,423 @@ class ProfileTab extends ConsumerWidget {
   }
 }
 
-Future<void> showTransactionForm(BuildContext context, WidgetRef ref, {Map<String, dynamic>? current}) async {
+
+class _ProfileShortcut extends StatelessWidget {
+  final IconData icon; final String title; final String subtitle; final Color tint; final VoidCallback onTap;
+  const _ProfileShortcut({required this.icon, required this.title, required this.subtitle, required this.tint, required this.onTap});
+  @override Widget build(BuildContext context) => Material(
+    color: Colors.white, borderRadius: BorderRadius.circular(20),
+    child: InkWell(borderRadius: BorderRadius.circular(20), onTap: onTap, child: Padding(
+      padding: const EdgeInsets.all(13),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+        Container(width: 40, height: 40, decoration: BoxDecoration(color: tint, borderRadius: BorderRadius.circular(14)), child: Icon(icon, color: brand, size: 22)),
+        const SizedBox(height: 9),
+        Text(title, style: const TextStyle(color: dark, fontSize: 13, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 3),
+        Text(subtitle, style: const TextStyle(color: muted, fontSize: 10)),
+      ]),
+    )),
+  );
+}
+
+Future<void> showTransactionDetail(BuildContext context, WidgetRef ref, Map<String, dynamic> item) async {
+  await Navigator.of(context).push(MaterialPageRoute<void>(builder: (detailContext) => _TransactionDetailScreen(
+    item: item,
+    onEdit: () async {
+      Navigator.of(detailContext).pop();
+      await Future<void>.delayed(const Duration(milliseconds: 140));
+      if (context.mounted) await showTransactionForm(context, ref, current: item);
+    },
+  )));
+}
+
+class _TransactionDetailScreen extends ConsumerWidget {
+  final Map<String, dynamic> item; final Future<void> Function() onEdit;
+  const _TransactionDetailScreen({required this.item, required this.onEdit});
+  @override Widget build(BuildContext context, WidgetRef ref) {
+    final income = item['type'] == 'INCOME';
+    final category = item['category']?.toString() ?? 'Khác';
+    final tint = income ? green : red;
+    return Scaffold(backgroundColor: canvas, appBar: AppBar(title: const Text('Chi tiết giao dịch'), backgroundColor: canvas),
+      body: ListView(padding: const EdgeInsets.fromLTRB(18, 10, 18, 28), children: [
+        Container(padding: const EdgeInsets.all(24), decoration: BoxDecoration(
+          gradient: LinearGradient(colors: income ? const [Color(0xFF078B68), Color(0xFF26B88B)] : const [Color(0xFFE94D59), Color(0xFFFF777B)]),
+          borderRadius: BorderRadius.circular(28), boxShadow: [BoxShadow(color: tint.withValues(alpha: 0.18), blurRadius: 22, offset: const Offset(0, 10))]),
+          child: Column(children: [
+            Container(width: 60, height: 60, decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.18), borderRadius: BorderRadius.circular(20)),
+              child: Icon(categoryIcon(category), color: Colors.white, size: 30)),
+            const SizedBox(height: 14),
+            Text(income ? 'KHOẢN THU' : 'KHOẢN CHI', style: const TextStyle(color: Colors.white70, fontSize: 11, letterSpacing: 1.5, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            Text((income ? '+' : '−') + money(item['amount']), style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 7),
+            Text(category, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700)),
+          ])),
+        const SizedBox(height: 18),
+        infoCard(child: Column(children: [
+          _DetailRow(icon: Icons.calendar_month_rounded, label: 'Ngày giao dịch', value: item['occurredOn']?.toString() ?? '—'),
+          const Divider(height: 24),
+          _DetailRow(icon: Icons.category_rounded, label: 'Danh mục', value: category),
+          const Divider(height: 24),
+          _DetailRow(icon: Icons.swap_horiz_rounded, label: 'Loại giao dịch', value: income ? 'Thu nhập' : 'Chi tiêu'),
+          const Divider(height: 24),
+          _DetailRow(icon: Icons.notes_rounded, label: 'Ghi chú', value: (item['note']?.toString().trim().isNotEmpty ?? false) ? item['note'].toString() : 'Không có ghi chú'),
+        ])),
+        const SizedBox(height: 20),
+        SizedBox(height: 54, child: FilledButton.icon(onPressed: () => onEdit(), icon: const Icon(Icons.edit_rounded),
+          label: const Text('Chỉnh sửa giao dịch', style: TextStyle(fontWeight: FontWeight.w800)),
+          style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17))))),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: () async {
+            final confirmed = await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(
+              title: const Text('Xóa giao dịch?'), content: const Text('Hành động này không thể hoàn tác.'),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('Giữ lại')),
+                FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('Xóa giao dịch')),
+              ]));
+            if (confirmed != true) return;
+            try {
+              await ref.read(apiProvider).delete('/transactions/' + item['id'].toString());
+              refreshData(ref);
+              if (context.mounted) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã xóa giao dịch'))); Navigator.of(context).pop(); }
+            } catch (error) {
+              if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiError(error))));
+            }
+          },
+          icon: const Icon(Icons.delete_outline_rounded), label: const Text('Xóa giao dịch'),
+          style: OutlinedButton.styleFrom(foregroundColor: red, side: const BorderSide(color: Color(0xFFFFCDD0)),
+            padding: const EdgeInsets.symmetric(vertical: 15), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17))),
+        ),
+      ]),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  final IconData icon; final String label; final String value;
+  const _DetailRow({required this.icon, required this.label, required this.value});
+  @override Widget build(BuildContext context) => Row(children: [
+    Container(width: 42, height: 42, decoration: BoxDecoration(color: const Color(0xFFEAF0FF), borderRadius: BorderRadius.circular(14)), child: Icon(icon, color: brand, size: 21)),
+    const SizedBox(width: 12),
+    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: const TextStyle(color: muted, fontSize: 11)), const SizedBox(height: 4),
+      Text(value, style: const TextStyle(color: dark, fontSize: 13, fontWeight: FontWeight.w700)),
+    ])),
+  ]);
+}
+
+class WalletsScreen extends ConsumerWidget {
+  const WalletsScreen({super.key});
+  @override Widget build(BuildContext context, WidgetRef ref) {
+    final wallets = ref.watch(walletProvider);
+    return Scaffold(backgroundColor: canvas, appBar: AppBar(title: const Text('Ví của tôi'), backgroundColor: canvas),
+      body: wallets.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (error, stack) => loadError(error, () => ref.invalidate(walletProvider)),
+        data: (items) {
+          final total = items.fold<double>(0, (sum, wallet) => sum + amountOf(wallet['balance']));
+          return ListView(padding: const EdgeInsets.fromLTRB(18, 8, 18, 28), children: [
+            Container(padding: const EdgeInsets.all(22), decoration: BoxDecoration(
+              gradient: const LinearGradient(colors: [Color(0xFF2147D7), Color(0xFF5275F7)]), borderRadius: BorderRadius.circular(26)),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('TỔNG SỐ DƯ', style: TextStyle(color: Colors.white70, fontSize: 11, letterSpacing: 1.4, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 10), Text(money(total), style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 8), Text(items.length.toString() + ' ví đang quản lý', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+              ])),
+            const SizedBox(height: 20),
+            const Text('Danh sách ví', style: TextStyle(color: dark, fontSize: 18, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 12),
+            if (items.isEmpty) infoCard(child: const Text('Bạn chưa có ví nào. Tạo ví đầu tiên để bắt đầu quản lý số dư.')),
+            for (var i = 0; i < items.length; i++) Padding(padding: const EdgeInsets.only(bottom: 12), child: infoCard(
+              padding: const EdgeInsets.all(17), child: Row(children: [
+                Container(width: 52, height: 52, decoration: BoxDecoration(color: i.isEven ? const Color(0xFFE8EEFF) : const Color(0xFFE1F7EE), borderRadius: BorderRadius.circular(17)),
+                  child: Icon(i.isEven ? Icons.account_balance_wallet_rounded : Icons.savings_rounded, color: i.isEven ? brand : green, size: 26)),
+                const SizedBox(width: 14),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(items[i]['name']?.toString() ?? 'Ví', style: const TextStyle(color: dark, fontSize: 14, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 5), const Text('Số dư hiện tại', style: TextStyle(color: muted, fontSize: 11)),
+                ])),
+                const SizedBox(width: 8), Flexible(child: Text(money(items[i]['balance']), textAlign: TextAlign.end, style: const TextStyle(color: dark, fontSize: 14, fontWeight: FontWeight.w900))),
+              ]))),
+            const SizedBox(height: 8),
+            SizedBox(height: 54, child: FilledButton.icon(onPressed: () => showWalletForm(context, ref), icon: const Icon(Icons.add_rounded),
+              label: const Text('Tạo ví mới', style: TextStyle(fontWeight: FontWeight.w800)),
+              style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17))))),
+          ]);
+        },
+      ),
+    );
+  }
+}
+
+class ReceiptScanScreen extends ConsumerStatefulWidget {
+  const ReceiptScanScreen({super.key});
+  @override ConsumerState<ReceiptScanScreen> createState() => _ReceiptScanScreenState();
+}
+class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
+  ReceiptData? result; bool scanning = false;
+  Future<void> scan(ImageSource source) async {
+    setState(() => scanning = true);
+    try {
+      final found = await scanReceipt(source);
+      if (mounted && found != null) setState(() => result = found);
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Không đọc được hóa đơn: ' + error.toString())));
+    } finally { if (mounted) setState(() => scanning = false); }
+  }
+  @override Widget build(BuildContext context) => Scaffold(
+    backgroundColor: canvas, appBar: AppBar(title: const Text('Quét hóa đơn OCR'), backgroundColor: canvas),
+    body: ListView(padding: const EdgeInsets.fromLTRB(18, 8, 18, 30), children: [
+      Container(padding: const EdgeInsets.all(22), decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [Color(0xFF2147D7), Color(0xFF5275F7)]), borderRadius: BorderRadius.circular(26)),
+        child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(Icons.document_scanner_rounded, color: Colors.white, size: 34), SizedBox(height: 16),
+          Text('Quét nhanh, ghi chép dễ dàng', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900)),
+          SizedBox(height: 7), Text('Chụp hóa đơn hoặc chọn ảnh có sẵn. Hãy kiểm tra số tiền trước khi lưu giao dịch.',
+            style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.5)),
+        ])),
+      const SizedBox(height: 16),
+      infoCard(child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(Icons.verified_user_outlined, color: green), SizedBox(width: 10),
+        Expanded(child: Text('Ảnh được xử lý trực tiếp trên điện thoại, không tải ảnh hóa đơn lên máy chủ.', style: TextStyle(color: dark, fontSize: 12, height: 1.5))),
+      ])),
+      const SizedBox(height: 16),
+      Row(children: [
+        Expanded(child: SizedBox(height: 54, child: FilledButton.icon(onPressed: scanning ? null : () => scan(ImageSource.camera),
+          icon: const Icon(Icons.camera_alt_rounded), label: const Text('Chụp hóa đơn'),
+          style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)))))),
+        const SizedBox(width: 10),
+        Expanded(child: SizedBox(height: 54, child: OutlinedButton.icon(onPressed: scanning ? null : () => scan(ImageSource.gallery),
+          icon: const Icon(Icons.photo_library_outlined), label: const Text('Chọn ảnh'),
+          style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)))))),
+      ]),
+      if (scanning) const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator())),
+      if (result != null) ...[
+        const SizedBox(height: 20), section('Kết quả nhận dạng'),
+        infoCard(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('SỐ TIỀN GỢI Ý', style: TextStyle(color: muted, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.2)),
+          const SizedBox(height: 8), Text(result!.amount == null ? 'Chưa nhận dạng được' : money(result!.amount),
+            style: const TextStyle(color: brand, fontSize: 27, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 10),
+          _DetailRow(icon: Icons.storefront_rounded, label: 'Cửa hàng', value: result!.merchant.isEmpty ? 'Chưa nhận dạng' : result!.merchant),
+          const SizedBox(height: 14),
+          Text(result!.hasTotalLabel ? 'Đã phát hiện nhãn tổng tiền; vẫn cần đối chiếu.' : 'Chưa phát hiện nhãn tổng tiền rõ ràng. Hãy kiểm tra số tiền.',
+            style: const TextStyle(color: muted, fontSize: 12, height: 1.5)),
+          const SizedBox(height: 12), const Text('Văn bản OCR', style: TextStyle(color: dark, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 6), SelectableText(result!.rawText.isEmpty ? 'Không nhận dạng được văn bản.' : result!.rawText,
+            style: const TextStyle(color: muted, fontSize: 12, height: 1.4)),
+          const SizedBox(height: 18),
+          SizedBox(width: double.infinity, height: 52, child: FilledButton.icon(
+            onPressed: result!.amount == null ? null : () => showTransactionForm(context, ref,
+              initialAmount: result!.amount.toString(),
+              initialNote: result!.merchant.isEmpty ? 'Hóa đơn OCR' : 'Hóa đơn: ' + result!.merchant),
+            icon: const Icon(Icons.add_rounded), label: const Text('Tạo giao dịch từ hóa đơn', style: TextStyle(fontWeight: FontWeight.w800)),
+            style: FilledButton.styleFrom(backgroundColor: red, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))))),
+        ])),
+      ],
+    ]),
+  );
+}
+
+class ReportsScreen extends ConsumerWidget {
+  const ReportsScreen({super.key});
+  @override Widget build(BuildContext context, WidgetRef ref) {
+    final report = ref.watch(summaryProvider);
+    return Scaffold(backgroundColor: canvas, appBar: AppBar(title: const Text('Báo cáo tài chính'), backgroundColor: canvas),
+      body: report.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (error, stack) => loadError(error, () => ref.invalidate(summaryProvider)),
+        data: (data) {
+          final income = amountOf(data['income']); final expense = amountOf(data['expense']);
+          final categories = Map<String, dynamic>.from(data['byCategory'] as Map? ?? {});
+          final entries = categories.entries.toList()..sort((a, b) => amountOf(b.value).compareTo(amountOf(a.value)));
+          const palette = [brand, green, red, Color(0xFFFFB84D), Color(0xFF9B8AE8), Colors.teal, Colors.indigo];
+          return ListView(padding: const EdgeInsets.fromLTRB(18, 8, 18, 28), children: [
+            const MonthPicker(),
+            Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(
+              gradient: const LinearGradient(colors: [Color(0xFF2147D7), Color(0xFF5275F7)]), borderRadius: BorderRadius.circular(25)),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('SỨC KHỎE TÀI CHÍNH', style: TextStyle(color: Colors.white70, fontSize: 10, letterSpacing: 1.3, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8), Text(money(data['totalBalance']), style: const TextStyle(color: Colors.white, fontSize: 27, fontWeight: FontWeight.w900)),
+                const Text('Tổng số dư tất cả ví', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                const SizedBox(height: 18), Row(children: [
+                  Expanded(child: _ReportMetric(label: 'Thu nhập', amount: income, tint: const Color(0xFFB9FFE4), icon: Icons.south_west_rounded)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _ReportMetric(label: 'Chi tiêu', amount: expense, tint: const Color(0xFFFFD2D4), icon: Icons.north_east_rounded)),
+                ]),
+              ])),
+            const SizedBox(height: 18), section('Cơ cấu chi tiêu'),
+            infoCard(child: Column(children: [
+              SizedBox(height: 205, child: expense <= 0 ? const Center(child: Text('Chưa có dữ liệu chi tiêu', style: TextStyle(color: muted)))
+                : PieChart(PieChartData(sectionsSpace: 3, centerSpaceRadius: 48,
+                    sections: [for (var i = 0; i < entries.length; i++) PieChartSectionData(color: palette[i % palette.length], value: amountOf(entries[i].value), radius: 42, showTitle: false)]))),
+              if (entries.isNotEmpty) ...[
+                const Divider(height: 22),
+                for (var i = 0; i < entries.length; i++) Padding(padding: const EdgeInsets.symmetric(vertical: 7), child: Row(children: [
+                  Container(width: 10, height: 10, decoration: BoxDecoration(color: palette[i % palette.length], borderRadius: BorderRadius.circular(3))),
+                  const SizedBox(width: 10), Expanded(child: Text(entries[i].key, style: const TextStyle(color: dark, fontWeight: FontWeight.w600))),
+                  Text(money(entries[i].value), style: const TextStyle(color: dark, fontWeight: FontWeight.w800)),
+                ])),
+              ],
+            ])),
+            const SizedBox(height: 18),
+            SizedBox(height: 54, child: FilledButton.icon(onPressed: () async {
+              try {
+                final all = await ref.read(transactionProvider.future);
+                await exportMonthlyPdf(month: ref.read(monthProvider), summary: data, transactions: all);
+              } catch (error) {
+                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Không xuất được PDF: ' + apiError(error))));
+              }
+            }, icon: const Icon(Icons.picture_as_pdf_rounded), label: const Text('Xuất báo cáo tháng ra PDF', style: TextStyle(fontWeight: FontWeight.w800)),
+              style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17))))),
+          ]);
+        },
+      ),
+    );
+  }
+}
+
+class _ReportMetric extends StatelessWidget {
+  final String label; final double amount; final Color tint; final IconData icon;
+  const _ReportMetric({required this.label, required this.amount, required this.tint, required this.icon});
+  @override Widget build(BuildContext context) => Container(padding: const EdgeInsets.all(13),
+    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(17)),
+    child: Row(children: [
+      Icon(icon, color: tint, size: 20), const SizedBox(width: 8),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)), const SizedBox(height: 5),
+        Text(money(amount), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900)),
+      ])),
+    ]),
+  );
+}
+
+class OfflineSyncScreen extends ConsumerStatefulWidget {
+  const OfflineSyncScreen({super.key});
+  @override ConsumerState<OfflineSyncScreen> createState() => _OfflineSyncScreenState();
+}
+class _OfflineSyncScreenState extends ConsumerState<OfflineSyncScreen> {
+  bool syncing = false;
+  Future<void> syncNow() async {
+    final email = ref.read(authProvider).userEmail ?? '';
+    if (email.isEmpty) return;
+    setState(() => syncing = true);
+    try {
+      final count = await OfflineQueue.sync(email, ref.read(apiProvider));
+      refreshData(ref);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đồng bộ thành công ' + count.toString() + ' giao dịch')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiError(error))));
+    } finally { if (mounted) setState(() => syncing = false); }
+  }
+  @override Widget build(BuildContext context) {
+    final email = ref.watch(authProvider).userEmail ?? '';
+    return Scaffold(backgroundColor: canvas, appBar: AppBar(title: const Text('Đồng bộ offline'), backgroundColor: canvas),
+      body: FutureBuilder<List<Map<String, Object?>>>(future: OfflineQueue.pending(email), builder: (context, snapshot) {
+        final drafts = snapshot.data ?? [];
+        return ListView(padding: const EdgeInsets.fromLTRB(18, 8, 18, 28), children: [
+          Container(padding: const EdgeInsets.all(22), decoration: BoxDecoration(color: const Color(0xFFFFF1D7), borderRadius: BorderRadius.circular(24)),
+            child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Icon(Icons.sync_rounded, color: Color(0xFF9B6500), size: 30), SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Giao dịch an toàn khi mất mạng', style: TextStyle(color: dark, fontSize: 16, fontWeight: FontWeight.w900)),
+                SizedBox(height: 6), Text('Giao dịch offline được lưu vào hàng đợi trên máy. Khi có mạng, MoneyMate gửi lên máy chủ bằng mã riêng để tránh tạo bản trùng.',
+                  style: TextStyle(color: muted, fontSize: 12, height: 1.5)),
+              ])),
+            ])),
+          const SizedBox(height: 18),
+          Text(drafts.length.toString() + ' giao dịch đang chờ', style: const TextStyle(color: dark, fontSize: 17, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 12),
+          if (snapshot.connectionState == ConnectionState.waiting) const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator())),
+          if (snapshot.connectionState != ConnectionState.waiting && drafts.isEmpty) infoCard(child: const Column(children: [
+            Icon(Icons.cloud_done_rounded, color: green, size: 38), SizedBox(height: 8),
+            Text('Bạn đã cập nhật', style: TextStyle(color: dark, fontWeight: FontWeight.w800)), SizedBox(height: 4),
+            Text('Không có giao dịch nào đang chờ đồng bộ.', style: TextStyle(color: muted, fontSize: 12)),
+          ])),
+          for (final draft in drafts) Padding(padding: const EdgeInsets.only(bottom: 10), child: infoCard(child: Row(children: [
+            Container(width: 44, height: 44, decoration: BoxDecoration(color: const Color(0xFFFFE8E9), borderRadius: BorderRadius.circular(14)), child: const Icon(Icons.cloud_upload_outlined, color: red)),
+            const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('Giao dịch cục bộ', style: TextStyle(color: dark, fontWeight: FontWeight.w800)), const SizedBox(height: 4),
+              Text(draft['error']?.toString() ?? 'Sẵn sàng gửi khi có mạng', style: const TextStyle(color: muted, fontSize: 11)),
+            ])), const Icon(Icons.schedule_rounded, color: muted),
+          ]))),
+          const SizedBox(height: 12),
+          SizedBox(height: 54, child: FilledButton.icon(onPressed: syncing || email.isEmpty ? null : syncNow,
+            icon: Icon(syncing ? Icons.hourglass_top_rounded : Icons.sync_rounded),
+            label: Text(syncing ? 'Đang đồng bộ...' : 'Đồng bộ ngay', style: const TextStyle(fontWeight: FontWeight.w800)),
+            style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17))))),
+        ]);
+      }),
+    );
+  }
+}
+
+class SettingsScreen extends ConsumerWidget {
+  const SettingsScreen({super.key});
+  @override Widget build(BuildContext context, WidgetRef ref) {
+    final account = ref.watch(authProvider);
+    return Scaffold(backgroundColor: canvas, appBar: AppBar(title: const Text('Cài đặt & bảo mật'), backgroundColor: canvas),
+      body: ListView(padding: const EdgeInsets.fromLTRB(18, 8, 18, 28), children: [
+        infoCard(child: Row(children: [
+          const CircleAvatar(radius: 28, backgroundColor: Color(0xFFE8EEFF), child: Icon(Icons.person_rounded, color: brand, size: 30)),
+          const SizedBox(width: 13), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(account.displayName ?? 'Tài khoản', style: const TextStyle(color: dark, fontSize: 16, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 4), Text(account.userEmail ?? '', style: const TextStyle(color: muted, fontSize: 12)),
+          ])),
+        ])),
+        const SizedBox(height: 18), section('Quyền riêng tư'),
+        infoCard(child: const Column(children: [
+          _SettingsRow(icon: Icons.lock_outline_rounded, title: 'Đăng nhập bảo mật', subtitle: 'Phiên đăng nhập được lưu bằng bộ nhớ bảo mật của thiết bị.'),
+          Divider(height: 24),
+          _SettingsRow(icon: Icons.document_scanner_outlined, title: 'OCR trên thiết bị', subtitle: 'Ảnh hóa đơn được xử lý cục bộ; dữ liệu chỉ được lưu khi bạn xác nhận giao dịch.'),
+          Divider(height: 24),
+          _SettingsRow(icon: Icons.cloud_sync_outlined, title: 'Đồng bộ dữ liệu', subtitle: 'Giao dịch offline được giữ trong hàng đợi trên thiết bị cho đến khi đồng bộ thành công.'),
+        ])),
+        const SizedBox(height: 18), section('Quản lý ứng dụng'),
+        _SettingsLink(icon: Icons.sync_rounded, title: 'Hàng đợi đồng bộ offline', subtitle: 'Xem giao dịch chưa gửi lên cloud',
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const OfflineSyncScreen()))),
+        _SettingsLink(icon: Icons.picture_as_pdf_rounded, title: 'Báo cáo tài chính', subtitle: 'Xem biểu đồ và xuất báo cáo PDF',
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ReportsScreen()))),
+        _SettingsLink(icon: Icons.account_balance_wallet_rounded, title: 'Quản lý ví', subtitle: 'Xem số dư của từng ví',
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WalletsScreen()))),
+        const SizedBox(height: 20),
+        const Center(child: Column(children: [
+          Text('MoneyMate', style: TextStyle(color: brand, fontWeight: FontWeight.w900, fontSize: 15)), SizedBox(height: 4),
+          Text('Phiên bản 0.3.0 · Personal finance', style: TextStyle(color: muted, fontSize: 11)),
+        ])),
+      ]),
+    );
+  }
+}
+
+class _SettingsRow extends StatelessWidget {
+  final IconData icon; final String title; final String subtitle;
+  const _SettingsRow({required this.icon, required this.title, required this.subtitle});
+  @override Widget build(BuildContext context) => Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Container(width: 42, height: 42, decoration: BoxDecoration(color: const Color(0xFFE8EEFF), borderRadius: BorderRadius.circular(13)), child: Icon(icon, color: brand)),
+    const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: const TextStyle(color: dark, fontWeight: FontWeight.w800)), const SizedBox(height: 5),
+      Text(subtitle, style: const TextStyle(color: muted, fontSize: 11, height: 1.5)),
+    ])),
+  ]);
+}
+
+class _SettingsLink extends StatelessWidget {
+  final IconData icon; final String title; final String subtitle; final VoidCallback onTap;
+  const _SettingsLink({required this.icon, required this.title, required this.subtitle, required this.onTap});
+  @override Widget build(BuildContext context) => Padding(padding: const EdgeInsets.only(bottom: 10), child: infoCard(
+    padding: const EdgeInsets.all(15), child: InkWell(onTap: onTap, child: Row(children: [
+      Container(width: 42, height: 42, decoration: BoxDecoration(color: const Color(0xFFE8EEFF), borderRadius: BorderRadius.circular(13)), child: Icon(icon, color: brand)),
+      const SizedBox(width: 12), Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(title, style: const TextStyle(color: dark, fontWeight: FontWeight.w800)), const SizedBox(height: 4),
+        Text(subtitle, style: const TextStyle(color: muted, fontSize: 11)),
+      ])), const Icon(Icons.chevron_right_rounded, color: muted),
+    ])),
+  ));
+}
+
+Future<void> showTransactionForm(BuildContext context, WidgetRef ref, {Map<String, dynamic>? current, String? initialAmount, String? initialNote}) async {
   final email=ref.read(authProvider).userEmail ?? '';
   List<Map<String,dynamic>> available;
   try{
@@ -908,7 +1344,7 @@ Future<void> showTransactionForm(BuildContext context, WidgetRef ref, {Map<Strin
         color: canvas,
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      child: _TransactionForm(wallets: available, current: current),
+      child: _TransactionForm(wallets: available, current: current, initialAmount: initialAmount, initialNote: initialNote),
     ),
   );
 }
@@ -916,7 +1352,9 @@ Future<void> showTransactionForm(BuildContext context, WidgetRef ref, {Map<Strin
 class _TransactionForm extends ConsumerStatefulWidget {
   final List<Map<String, dynamic>> wallets;
   final Map<String, dynamic>? current;
-  const _TransactionForm({required this.wallets, this.current});
+  final String? initialAmount;
+  final String? initialNote;
+  const _TransactionForm({required this.wallets, this.current, this.initialAmount, this.initialNote});
   @override ConsumerState<_TransactionForm> createState() => _TransactionFormState();
 }
 class _TransactionFormState extends ConsumerState<_TransactionForm> {
@@ -933,8 +1371,8 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
     category = item?['category']?.toString() ?? expenseCategories.first;
     walletId = item?['walletId']?.toString() ?? widget.wallets.first['id'].toString();
     date = item?['occurredOn'] == null ? DateTime.now() : DateTime.parse(item!['occurredOn'].toString());
-    amount = TextEditingController(text: item == null ? '' : amountOf(item['amount']).toStringAsFixed(0));
-    note = TextEditingController(text: item?['note']?.toString() ?? '');
+    amount = TextEditingController(text: item == null ? (widget.initialAmount ?? '') : amountOf(item['amount']).toStringAsFixed(0));
+    note = TextEditingController(text: item?['note']?.toString() ?? widget.initialNote ?? '');
   }
   @override void dispose() {amount.dispose();note.dispose();super.dispose();}
 
