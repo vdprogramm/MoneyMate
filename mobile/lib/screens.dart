@@ -1015,48 +1015,168 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiError(e))));
     } finally { if (mounted) setState(() => saving = false); }
   }
-  @override Widget build(BuildContext context) {
+  @override
+  Widget build(BuildContext context) {
     final options = type == 'EXPENSE' ? expenseCategories : incomeCategories;
     if (!options.contains(category)) category = options.first;
-    return Padding(padding: EdgeInsets.fromLTRB(18, 16, 18, MediaQuery.of(context).viewInsets.bottom + 24),
-      child: SingleChildScrollView(child: Form(key: form, child: Column(mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text(widget.current == null ? 'Thêm giao dịch' : 'Sửa giao dịch', style: const TextStyle(fontSize: 23, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          SegmentedButton<String>(segments: const [
-            ButtonSegment(value: 'EXPENSE', label: Text('Chi tiêu'), icon: Icon(Icons.arrow_upward)),
-            ButtonSegment(value: 'INCOME', label: Text('Thu nhập'), icon: Icon(Icons.arrow_downward)),
-          ], selected: {type}, onSelectionChanged: (value) => setState(() { type = value.first;category = type == 'EXPENSE' ? expenseCategories.first : incomeCategories.first; })),
-          const SizedBox(height: 13),
-          if (widget.current == null && type == 'EXPENSE') ...[
-            OutlinedButton.icon(onPressed: saving ? null : importReceipt,
-              icon: const Icon(Icons.document_scanner_outlined),
-              label: const Text('Quét hóa đơn bằng camera / thư viện')),
-            const SizedBox(height: 12),
-          ],
-          TextFormField(controller: amount, keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: 'Số tiền (VND)'),
-            validator: (text) => (double.tryParse(text?.trim() ?? '') ?? 0) <= 0 ? 'Nhập số tiền lớn hơn 0' : null),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(initialValue: walletId, decoration: const InputDecoration(labelText: 'Ví'),
-            items: [for (final w in widget.wallets) DropdownMenuItem(value: w['id'].toString(), child: Text('${w['name']}'))],
-            onChanged: (value) => setState(() => walletId = value!)),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(key: ValueKey(type), initialValue: category, decoration: const InputDecoration(labelText: 'Danh mục'),
-            items: [for (final c in options) DropdownMenuItem(value: c, child: Text(c))],
-            onChanged: (value) => setState(() => category = value!)),
-          const SizedBox(height: 12),
-          TextFormField(controller: note, maxLength: 500, decoration: const InputDecoration(labelText: 'Ghi chú (không bắt buộc)')),
-          TextButton.icon(onPressed: () async {
-            final result = await showDatePicker(context: context, initialDate: date,
-              firstDate: DateTime(2000), lastDate: DateTime(2100));
-            if (result != null) setState(() => date = result);
-          }, icon: const Icon(Icons.calendar_today_outlined), label: Text('Ngày: ${DateFormat('dd/MM/yyyy').format(date)}')),
-          const SizedBox(height: 12),
-          FilledButton(onPressed: saving ? null : save,
-            child: Padding(padding: const EdgeInsets.all(12), child: Text(saving ? 'Đang lưu...' : 'Lưu giao dịch'))),
-        ],
-      ))),
+    final activeColor = type == 'EXPENSE' ? red : green;
+    return SafeArea(
+      top: false,
+      child: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+          child: Row(children: [
+            IconButton(onPressed: () => Navigator.of(context).pop(),
+              style: IconButton.styleFrom(backgroundColor: Colors.white),
+              icon: const Icon(Icons.arrow_back_rounded)),
+            const SizedBox(width: 8),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(widget.current == null
+                  ? (type == 'EXPENSE' ? 'Thêm khoản chi' : 'Thêm khoản thu')
+                  : 'Chỉnh sửa giao dịch',
+                style: const TextStyle(color: dark, fontSize: 21, fontWeight: FontWeight.w800)),
+              const Text('Ghi lại để quản lý tài chính tốt hơn',
+                style: TextStyle(color: muted, fontSize: 11)),
+            ])),
+            if (widget.current == null && type == 'EXPENSE')
+              IconButton(tooltip: 'Quét hóa đơn', onPressed: saving ? null : importReceipt,
+                style: IconButton.styleFrom(backgroundColor: const Color(0xFFE8EEFF), foregroundColor: brand),
+                icon: const Icon(Icons.document_scanner_outlined)),
+          ]),
+        ),
+        Expanded(child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(18, 4, 18, 18),
+          child: Form(key: form, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(26),
+                border: Border.all(color: const Color(0xFFF0F2F7)),
+                boxShadow: const [BoxShadow(color: Color(0x07182748), blurRadius: 18, offset: Offset(0, 6))]),
+              child: Column(children: [
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(color: const Color(0xFFF2F3F7), borderRadius: BorderRadius.circular(18)),
+                  child: Row(children: [
+                    Expanded(child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () => setState(() { type = 'EXPENSE'; category = expenseCategories.first; }),
+                      child: AnimatedContainer(duration: const Duration(milliseconds: 180),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(color: type == 'EXPENSE' ? red : Colors.transparent,
+                          borderRadius: BorderRadius.circular(14)),
+                        child: Text('Chi tiêu', textAlign: TextAlign.center,
+                          style: TextStyle(color: type == 'EXPENSE' ? Colors.white : muted, fontWeight: FontWeight.w800))))),
+                    Expanded(child: InkWell(
+                      borderRadius: BorderRadius.circular(14),
+                      onTap: () => setState(() { type = 'INCOME'; category = incomeCategories.first; }),
+                      child: AnimatedContainer(duration: const Duration(milliseconds: 180),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: BoxDecoration(color: type == 'INCOME' ? green : Colors.transparent,
+                          borderRadius: BorderRadius.circular(14)),
+                        child: Text('Thu nhập', textAlign: TextAlign.center,
+                          style: TextStyle(color: type == 'INCOME' ? Colors.white : muted, fontWeight: FontWeight.w800))))),
+                  ]),
+                ),
+                const SizedBox(height: 24),
+                const Text('SỐ TIỀN GIAO DỊCH',
+                  style: TextStyle(color: muted, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.4)),
+                const SizedBox(height: 5),
+                Row(children: [
+                  Text('₫', style: TextStyle(color: activeColor, fontSize: 30, fontWeight: FontWeight.w700)),
+                  const SizedBox(width: 8),
+                  Expanded(child: TextFormField(controller: amount,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true), textAlign: TextAlign.center,
+                    style: const TextStyle(color: dark, fontSize: 46, fontWeight: FontWeight.w800, letterSpacing: -1),
+                    decoration: const InputDecoration(hintText: '0', filled: false, isDense: true,
+                      border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none,
+                      contentPadding: EdgeInsets.zero),
+                    validator: (value) => (double.tryParse(value?.trim() ?? '') ?? 0) <= 0
+                      ? 'Nhập số tiền lớn hơn 0' : null)),
+                ]),
+                const Text('Việt Nam đồng (VND)', style: TextStyle(color: muted, fontSize: 11)),
+              ]),
+            ),
+            section('Danh mục'),
+            GridView.builder(
+              shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), itemCount: options.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 4, crossAxisSpacing: 10, mainAxisSpacing: 12, mainAxisExtent: 94),
+              itemBuilder: (context, index) {
+                final item = options[index];
+                final selected = item == category;
+                return InkWell(borderRadius: BorderRadius.circular(18),
+                  onTap: () => setState(() => category = item),
+                  child: Column(children: [
+                    AnimatedContainer(duration: const Duration(milliseconds: 160), width: 56, height: 56,
+                      decoration: BoxDecoration(
+                        color: selected ? (type == 'EXPENSE' ? const Color(0xFFFFE8E9) : const Color(0xFFE2F7EF)) : Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: selected ? activeColor : const Color(0xFFE9ECF3), width: selected ? 1.8 : 1)),
+                      child: Icon(categoryIcon(item), color: selected ? activeColor : muted, size: 25)),
+                    const SizedBox(height: 7),
+                    Text(item, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
+                      style: TextStyle(color: selected ? dark : muted, fontSize: 10,
+                        fontWeight: selected ? FontWeight.w800 : FontWeight.w500)),
+                  ]),
+                );
+              },
+            ),
+            section('Chi tiết giao dịch'),
+            infoCard(padding: const EdgeInsets.all(14), child: Column(children: [
+              InkWell(borderRadius: BorderRadius.circular(16),
+                onTap: () async {
+                  final result = await showDatePicker(context: context, initialDate: date,
+                    firstDate: DateTime(2000), lastDate: DateTime(2100));
+                  if (result != null) setState(() => date = result);
+                },
+                child: Padding(padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Row(children: [
+                    Container(width: 44, height: 44,
+                      decoration: BoxDecoration(color: const Color(0xFFEAF0FF), borderRadius: BorderRadius.circular(14)),
+                      child: const Icon(Icons.calendar_month_rounded, color: brand)),
+                    const SizedBox(width: 12),
+                    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('Ngày giao dịch', style: TextStyle(color: muted, fontSize: 11)),
+                      const SizedBox(height: 3),
+                      Text(DateFormat('dd/MM/yyyy').format(date),
+                        style: const TextStyle(color: dark, fontSize: 13, fontWeight: FontWeight.w700)),
+                    ])),
+                    const Icon(Icons.chevron_right_rounded, color: muted),
+                  ]),
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(key: ValueKey('wallet-$walletId'), initialValue: walletId,
+                decoration: const InputDecoration(labelText: 'Ví', prefixIcon: Icon(Icons.account_balance_wallet_outlined)),
+                items: [for (final wallet in widget.wallets)
+                  DropdownMenuItem(value: wallet['id'].toString(), child: Text('${wallet['name']}'))],
+                onChanged: (value) { if (value != null) setState(() => walletId = value); }),
+              const SizedBox(height: 12),
+              TextFormField(controller: note, maxLength: 500,
+                decoration: const InputDecoration(labelText: 'Ghi chú (không bắt buộc)',
+                  prefixIcon: Icon(Icons.notes_rounded), counterText: '')),
+            ])),
+            if (widget.current == null && type == 'EXPENSE') ...[
+              const SizedBox(height: 14),
+              OutlinedButton.icon(onPressed: saving ? null : importReceipt,
+                icon: const Icon(Icons.document_scanner_outlined),
+                label: const Text('Quét hóa đơn bằng camera / thư viện'),
+                style: OutlinedButton.styleFrom(foregroundColor: brand,
+                  side: const BorderSide(color: Color(0xFFD9E2FF)),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)))),
+            ],
+          ])),
+        )),
+        Padding(padding: const EdgeInsets.fromLTRB(18, 10, 18, 14),
+          child: SizedBox(width: double.infinity, height: 60,
+            child: FilledButton.icon(onPressed: saving ? null : save,
+              icon: Icon(saving ? Icons.hourglass_top_rounded : Icons.check_rounded),
+              label: Text(saving ? 'Đang lưu...' : 'Lưu giao dịch',
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+              style: FilledButton.styleFrom(backgroundColor: activeColor, foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(19)), elevation: 0)))),
+      ]),
     );
   }
 }
