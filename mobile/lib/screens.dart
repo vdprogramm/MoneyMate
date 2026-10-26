@@ -978,7 +978,7 @@ class _TransactionDetailScreen extends ConsumerWidget {
               ]));
             if (confirmed != true) return;
             try {
-              await ref.read(apiProvider).delete('/transactions/' + item['id'].toString());
+              await ref.read(apiProvider).delete('/transactions/${item['id']}');
               refreshData(ref);
               if (context.mounted) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Đã xóa giao dịch'))); Navigator.of(context).pop(); }
             } catch (error) {
@@ -1023,7 +1023,7 @@ class WalletsScreen extends ConsumerWidget {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 const Text('TỔNG SỐ DƯ', style: TextStyle(color: Colors.white70, fontSize: 11, letterSpacing: 1.4, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 10), Text(money(total), style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900)),
-                const SizedBox(height: 8), Text(items.length.toString() + ' ví đang quản lý', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                const SizedBox(height: 8), Text('${items.length} ví đang quản lý', style: const TextStyle(color: Colors.white70, fontSize: 12)),
               ])),
             const SizedBox(height: 20),
             const Text('Danh sách ví', style: TextStyle(color: dark, fontSize: 18, fontWeight: FontWeight.w900)),
@@ -1063,7 +1063,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
       final found = await scanReceipt(source);
       if (mounted && found != null) setState(() => result = found);
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Không đọc được hóa đơn: ' + error.toString())));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Không đọc được hóa đơn: $error')));
     } finally { if (mounted) setState(() => scanning = false); }
   }
   @override Widget build(BuildContext context) => Scaffold(
@@ -1111,7 +1111,7 @@ class _ReceiptScanScreenState extends ConsumerState<ReceiptScanScreen> {
           SizedBox(width: double.infinity, height: 52, child: FilledButton.icon(
             onPressed: result!.amount == null ? null : () => showTransactionForm(context, ref,
               initialAmount: result!.amount.toString(),
-              initialNote: result!.merchant.isEmpty ? 'Hóa đơn OCR' : 'Hóa đơn: ' + result!.merchant),
+              initialNote: result!.merchant.isEmpty ? 'Hóa đơn OCR' : 'Hóa đơn: ${result!.merchant}'),
             icon: const Icon(Icons.add_rounded), label: const Text('Tạo giao dịch từ hóa đơn', style: TextStyle(fontWeight: FontWeight.w800)),
             style: FilledButton.styleFrom(backgroundColor: red, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))))),
         ])),
@@ -1167,7 +1167,7 @@ class ReportsScreen extends ConsumerWidget {
                 final all = await ref.read(transactionProvider.future);
                 await exportMonthlyPdf(month: ref.read(monthProvider), summary: data, transactions: all);
               } catch (error) {
-                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Không xuất được PDF: ' + apiError(error))));
+                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Không xuất được PDF: ${apiError(error)}')));
               }
             }, icon: const Icon(Icons.picture_as_pdf_rounded), label: const Text('Xuất báo cáo tháng ra PDF', style: TextStyle(fontWeight: FontWeight.w800)),
               style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17))))),
@@ -1206,7 +1206,7 @@ class _OfflineSyncScreenState extends ConsumerState<OfflineSyncScreen> {
     try {
       final count = await OfflineQueue.sync(email, ref.read(apiProvider));
       refreshData(ref);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đồng bộ thành công ' + count.toString() + ' giao dịch')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Đồng bộ thành công $count giao dịch')));
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiError(error))));
     } finally { if (mounted) setState(() => syncing = false); }
@@ -1227,7 +1227,7 @@ class _OfflineSyncScreenState extends ConsumerState<OfflineSyncScreen> {
               ])),
             ])),
           const SizedBox(height: 18),
-          Text(drafts.length.toString() + ' giao dịch đang chờ', style: const TextStyle(color: dark, fontSize: 17, fontWeight: FontWeight.w900)),
+          Text('${drafts.length} giao dịch đang chờ', style: const TextStyle(color: dark, fontSize: 17, fontWeight: FontWeight.w900)),
           const SizedBox(height: 12),
           if (snapshot.connectionState == ConnectionState.waiting) const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator())),
           if (snapshot.connectionState != ConnectionState.waiting && drafts.isEmpty) infoCard(child: const Column(children: [
