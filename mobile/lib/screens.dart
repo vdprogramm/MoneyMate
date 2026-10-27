@@ -368,7 +368,7 @@ class DashboardTab extends ConsumerWidget {
                         ),
                         const SizedBox(height: 5),
                         Text(
-                          'Xin chào, $account.displayName ?? "bạn"}',
+                          "Xin chào, ${account.displayName ?? 'bạn'}",
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
