@@ -44,8 +44,10 @@ String apiError(Object error) {
     final code = error.response?.statusCode;
     if (code == 401) return 'Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.';
     if (code == 403) return 'Bạn không có quyền truy cập dữ liệu này.';
-    if (code == 409) return 'Dữ liệu đã tồn tại.';
+    if (code == 404) return 'Không tìm thấy dữ liệu được yêu cầu.';
+    if (code == 409) return 'Dữ liệu đã tồn tại hoặc bị xung đột.';
     if (code != null && code >= 500) return 'Máy chủ đang bận. Thử lại sau.';
+    if (code != null && code >= 400) return 'Yêu cầu không hợp lệ (HTTP $code).';
     return 'Không thể kết nối đến máy chủ. Kiểm tra Internet và API.';
   }
   return error.toString();
