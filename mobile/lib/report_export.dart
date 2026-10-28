@@ -5,7 +5,8 @@ import 'package:printing/printing.dart';
 
 String _vnd(dynamic value) {
   final n=value is num?value.toDouble():double.tryParse('$value')??0;
-  return "${NumberFormat('#,##0','vi').format(n)} VND";
+  final pattern=n==n.truncateToDouble()?'#,##0':'#,##0.##';
+  return "${NumberFormat(pattern,'vi').format(n)} VND";
 }
 
 /// Export only the authenticated user's entries for the selected month.
