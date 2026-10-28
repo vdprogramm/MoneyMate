@@ -25,6 +25,8 @@ String money(dynamic value) {
   return '${NumberFormat(pattern, 'vi').format(amount)} ₫';
 }
 double amountOf(dynamic value) => value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
+double? parseMoneyInput(String value) =>
+    double.tryParse(value.trim().replaceAll(' ', '').replaceAll(',', '.'));
 
 Widget section(String title) => Padding(
   padding: const EdgeInsets.only(top: 20, bottom: 12),
@@ -235,7 +237,10 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
         Text(titles[index], style: const TextStyle(color: dark, fontWeight: FontWeight.bold, fontSize: 23)),
       ]), toolbarHeight:72,actions:[
         if(pendingCount>0) TextButton(
-          onPressed:syncing?null:()=>showPendingQueue(context,ref),
+          onPressed:syncing?null:()async{
+            await showPendingQueue(context,ref);
+            await syncPending();
+          },
           child:Text('$pendingCount chờ gửi',
             style:const TextStyle(fontSize:12,color:red))),
 
@@ -1513,7 +1518,7 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
     try {
       final payload = <String, dynamic>{
         'walletId': walletId,'type': type,'category': category,
-        'amount': double.parse(amount.text.trim()),'note': note.text.trim(),
+        'amount': parseMoneyInput(amount.text) ?? (throw const FormatException('Số tiền không hợp lệ')),'note': note.text.trim(),
         'occurredOn': DateFormat('yyyy-MM-dd').format(date),
       };
       var message='Giao dịch đã lưu lên cloud.';
@@ -1614,7 +1619,7 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
                     decoration: const InputDecoration(hintText: '0', filled: false, isDense: true,
                       border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none,
                       contentPadding: EdgeInsets.zero),
-                    validator: (value) => (double.tryParse(value?.trim() ?? '') ?? 0) <= 0
+                    validator: (value) => (parseMoneyInput(value ?? '') ?? 0) <= 0
                       ? 'Nhập số tiền lớn hơn 0' : null)),
                 ]),
                 const Text('Việt Nam đồng (VND)', style: TextStyle(color: muted, fontSize: 11)),
