@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -20,9 +21,12 @@ const incomeCategories = ['Lương', 'Thưởng', 'Đầu tư', 'Quà tặng', '
 
 String money(dynamic value) {
   final amount = value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
-  return '${NumberFormat('#,##0', 'vi').format(amount)} ₫';
+  final pattern = amount == amount.truncateToDouble() ? '#,##0' : '#,##0.##';
+  return '${NumberFormat(pattern, 'vi').format(amount)} ₫';
 }
 double amountOf(dynamic value) => value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
+double? parseMoneyInput(String value) =>
+    double.tryParse(value.trim().replaceAll(' ', '').replaceAll(',', '.'));
 
 Widget section(String title) => Padding(
   padding: const EdgeInsets.only(top: 20, bottom: 12),
@@ -134,6 +138,65 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   ))));
 }
 
+Future<void> showPendingQueue(BuildContext context, WidgetRef ref) async {
+  final email=ref.read(authProvider).userEmail;
+  if(email==null||email.isEmpty)return;
+  var items=await OfflineQueue.pending(email);
+  if(!context.mounted)return;
+  await showDialog<void>(
+    context:context,
+    builder:(dialogContext)=>StatefulBuilder(builder:(context,setDialogState)=>AlertDialog(
+      title:const Text('Giao dịch chờ đồng bộ'),
+      content:SizedBox(
+        width:420,
+        child:items.isEmpty
+          ? const Text('Không còn giao dịch chờ gửi.')
+          : ConstrainedBox(
+              constraints:const BoxConstraints(maxHeight:360),
+              child:ListView.separated(
+                shrinkWrap:true,
+                itemCount:items.length,
+                separatorBuilder:(_,__)=>const Divider(),
+                itemBuilder:(context,index){
+                  final item=items[index];
+                  final payload=Map<String,dynamic>.from(
+                    jsonDecode(item['payload'] as String) as Map);
+                  final error=item['error']?.toString()??'Chưa đồng bộ';
+                  return ListTile(
+                    contentPadding:EdgeInsets.zero,
+                    title:Text('${payload['type']=='INCOME'?'Thu':'Chi'} · ${money(payload['amount'])}'),
+                    subtitle:Text(error),
+                    trailing:IconButton(
+                      tooltip:'Xóa bản chờ',
+                      icon:const Icon(Icons.delete_outline,color:red),
+                      onPressed:()async{
+                        await OfflineQueue.deletePending(email,item['id'] as String);
+                        items=await OfflineQueue.pending(email);
+                        setDialogState((){});
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+      ),
+      actions:[
+        TextButton(onPressed:()=>Navigator.pop(dialogContext),child:const Text('Đóng')),
+        FilledButton.icon(
+          onPressed:items.isEmpty?null:()async{
+            await OfflineQueue.sync(email,ref.read(apiProvider));
+            items=await OfflineQueue.pending(email);
+            setDialogState((){});
+          },
+          icon:const Icon(Icons.sync),
+          label:const Text('Thử đồng bộ lại'),
+        ),
+      ],
+    )),
+  );
+  refreshData(ref);
+}
+
 class HomeShell extends ConsumerStatefulWidget {
   const HomeShell({super.key});
   @override ConsumerState<HomeShell> createState() => _HomeShellState();
@@ -173,8 +236,14 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
         const Text('MoneyMate', style: TextStyle(fontSize: 13, color: brand, fontWeight: FontWeight.bold)),
         Text(titles[index], style: const TextStyle(color: dark, fontWeight: FontWeight.bold, fontSize: 23)),
       ]), toolbarHeight:72,actions:[
-        if(pendingCount>0) Center(child:Text('$pendingCount chờ gửi',
-          style:const TextStyle(fontSize:12,color:red))),
+        if(pendingCount>0) TextButton(
+          onPressed:syncing?null:()async{
+            await showPendingQueue(context,ref);
+            await syncPending();
+          },
+          child:Text('$pendingCount chờ gửi',
+            style:const TextStyle(fontSize:12,color:red))),
+
         IconButton(onPressed:syncing?null:syncPending,tooltip:'Đồng bộ offline',
           icon:Icon(syncing?Icons.hourglass_top:Icons.sync)),
         IconButton(onPressed:()=>refreshData(ref),icon:const Icon(Icons.refresh))]),
@@ -1449,9 +1518,10 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
     try {
       final payload = <String, dynamic>{
         'walletId': walletId,'type': type,'category': category,
-        'amount': double.parse(amount.text.trim()),'note': note.text.trim(),
+        'amount': parseMoneyInput(amount.text) ?? (throw const FormatException('Số tiền không hợp lệ')),'note': note.text.trim(),
         'occurredOn': DateFormat('yyyy-MM-dd').format(date),
       };
+      var message='Giao dịch đã lưu lên cloud.';
       if(widget.current!=null){
         await ref.read(apiProvider).put('/transactions/${widget.current!['id']}',payload);
       }else{
@@ -1460,12 +1530,15 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
         // Persist first, before any network attempt, to survive lost responses.
         await OfflineQueue.enqueue(owner,payload);
         try{await OfflineQueue.sync(owner,ref.read(apiProvider));}catch(_){}
+        final pending=await OfflineQueue.count(owner);
+        message=pending==0
+          ? 'Giao dịch đã đồng bộ lên cloud.'
+          : 'Đã lưu trên thiết bị; còn $pending giao dịch chờ đồng bộ.';
       }
       refreshData(ref);
       if(mounted){
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:
-          Text('Giao dịch đã lưu. Nếu mất mạng sẽ tự gửi khi có mạng.')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(message)));
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(apiError(e))));
@@ -1546,7 +1619,7 @@ class _TransactionFormState extends ConsumerState<_TransactionForm> {
                     decoration: const InputDecoration(hintText: '0', filled: false, isDense: true,
                       border: InputBorder.none, enabledBorder: InputBorder.none, focusedBorder: InputBorder.none,
                       contentPadding: EdgeInsets.zero),
-                    validator: (value) => (double.tryParse(value?.trim() ?? '') ?? 0) <= 0
+                    validator: (value) => (parseMoneyInput(value ?? '') ?? 0) <= 0
                       ? 'Nhập số tiền lớn hơn 0' : null)),
                 ]),
                 const Text('Việt Nam đồng (VND)', style: TextStyle(color: muted, fontSize: 11)),

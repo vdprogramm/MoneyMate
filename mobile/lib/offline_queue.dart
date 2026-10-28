@@ -38,22 +38,40 @@ class OfflineQueue {
   static Future<List<Map<String,Object?>>> pending(String email)=>
     db.then((d)=>d.query('outbox',where:'owner=?',whereArgs:[owner(email)],orderBy:'created_at ASC'));
   static Future<int> count(String email)async=>(await pending(email)).length;
+  static Future<void> deletePending(String email,String id)async{
+    await (await db).delete('outbox',where:'id=? AND owner=?',whereArgs:[id,owner(email)]);
+  }
+  static String _friendlyError(int? code){
+    if(code==null)return 'Mất mạng; sẽ thử lại khi có kết nối.';
+    switch(code){
+      case 400:return 'Dữ liệu không hợp lệ; kiểm tra giao dịch hoặc xóa bản chờ.';
+      case 401:return 'Phiên đăng nhập hết hạn; đăng nhập lại rồi đồng bộ.';
+      case 403:return 'Không có quyền truy cập ví này.';
+      case 404:return 'Không tìm thấy ví; hãy kiểm tra tài khoản đang đăng nhập.';
+      case 409:return 'Giao dịch bị xung đột; kiểm tra hoặc xóa bản chờ.';
+      default:
+        if(code>=500)return 'Máy chủ tạm thời gặp lỗi; sẽ thử lại sau.';
+        return 'Máy chủ từ chối giao dịch (HTTP $code).';
+    }
+  }
   static Future<int> sync(String email,Api api)async{
-    var count=0;
+    var synced=0;
     for(final draft in await pending(email)){
       final id=draft['id'] as String;
       final entry=Map<String,dynamic>.from(jsonDecode(draft['payload'] as String) as Map);
       try{
         await api.post('/transactions/offline-sync',{'clientId':id,'transaction':entry});
         await (await db).delete('outbox',where:'id=? AND owner=?',whereArgs:[id,owner(email)]);
-        count++;
+        synced++;
       }on DioException catch(error){
         final code=error.response?.statusCode;
-        await (await db).update('outbox',{'error':code==null?'Mất mạng':'HTTP $code'},
+        await (await db).update('outbox',{'error':_friendlyError(code)},
           where:'id=? AND owner=?',whereArgs:[id,owner(email)]);
-        if(code==null || code>=500)break;
+        // A missing network, expired session, or server outage blocks all later
+        // sends. Permanent 4xx errors remain visible so the user can remove them.
+        if(code==null || code==401 || code>=500)break;
       }
     }
-    return count;
+    return synced;
   }
 }

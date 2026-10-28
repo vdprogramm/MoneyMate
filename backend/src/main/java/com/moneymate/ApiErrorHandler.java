@@ -17,4 +17,10 @@ class ApiErrorHandler {
     ResponseEntity<Map<String,String>> invalid(MethodArgumentNotValidException e){return ResponseEntity.badRequest().body(Map.of("error",e.getBindingResult().getFieldErrors().stream().findFirst().map(x->x.getField()+": "+x.getDefaultMessage()).orElse("Dữ liệu không hợp lệ")));}
     @ExceptionHandler(ArithmeticException.class)
     ResponseEntity<Map<String,String>> badMoney(ArithmeticException e){return ResponseEntity.badRequest().body(Map.of("error","Số tiền tối đa 2 chữ số thập phân"));}
+    @ExceptionHandler(ResponseStatusException.class)
+    ResponseEntity<Map<String,String>> status(ResponseStatusException e){
+        String message=e.getReason();
+        if(message==null||message.isBlank())message="Yêu cầu không hợp lệ";
+        return ResponseEntity.status(e.getStatusCode()).body(Map.of("error",message));
+    }
 }
