@@ -25,11 +25,10 @@ class Api {
     }));
   }
 
-  /// Render's free instance can sleep and need about two minutes to start.
-  /// Poll the public health endpoint before sending a non-idempotent auth request,
-  /// so a cold start does not cause register/login to fail at the normal API timeout.
+  /// Wait for a sleeping Render service to wake before submitting credentials.
   Future<void> waitForServer() async {
-    final base = apiBaseUrl.replaceFirst(RegExp(r'/      Map<String, dynamic>.from((await dio.post(path, data: body)).data as Map);
+    final base = apiBaseUrl.replaceFirst(RegExp(r'/
+      Map<String, dynamic>.from((await dio.post(path, data: body)).data as Map);
   Future<List<Map<String, dynamic>>> getList(String path) async =>
       ((await dio.get(path)).data as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
   Future<Map<String, dynamic>> getMap(String path) async =>
@@ -168,42 +167,33 @@ void refreshData(WidgetRef ref) {
 }
 ), '');
     if (base.isEmpty) {
-      throw TimeoutException('Bản ứng dụng thiếu cấu hình địa chỉ API.');
+      throw TimeoutException('Bản ứng dụng chưa được cấu hình địa chỉ API.');
     }
-
     final healthClient = Dio(BaseOptions(
       connectTimeout: const Duration(seconds: 6),
       receiveTimeout: const Duration(seconds: 6),
       sendTimeout: const Duration(seconds: 6),
       headers: {'Accept': 'application/json'},
     ));
-
     try {
-      for (var attempt = 0; attempt < 20; attempt++) {
+      for (var attempt = 0; attempt < 24; attempt++) {
         try {
-          final response = await healthClient.get('$base/actuator/health');
+          final response = await healthClient.get(base + '/actuator/health');
           final data = response.data;
-          if (response.statusCode == 200 &&
-              data is Map &&
-              data['status'] == 'UP') {
+          if (response.statusCode == 200 && data is Map && data['status'] == 'UP') {
             return;
           }
         } catch (_) {
-          // A sleeping Render instance may reject or time out early requests.
-          // Keep polling; GET /actuator/health is safe to repeat.
+          // A sleeping Render service may time out while starting.
         }
-
-        if (attempt < 19) {
-          await Future.delayed(const Duration(seconds: 4));
+        if (attempt < 23) {
+          await Future.delayed(const Duration(seconds: 5));
         }
       }
     } finally {
       healthClient.close(force: true);
     }
-
-    throw TimeoutException(
-      'Máy chủ MoneyMate chưa sẵn sàng sau vài phút. Hãy kiểm tra Internet và thử lại.',
-    );
+    throw TimeoutException('Máy chủ MoneyMate chưa sẵn sàng sau khoảng hai phút. Hãy thử lại.');
   }
 
   Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) async =>
