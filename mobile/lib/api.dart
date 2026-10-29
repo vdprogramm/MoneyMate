@@ -42,7 +42,7 @@ class Api {
     try {
       for (var attempt = 0; attempt < 24; attempt++) {
         try {
-          final response = await healthClient.get(base + '/actuator/health');
+          final response = await healthClient.get('$base/actuator/health');
           final data = response.data;
           if (response.statusCode == 200 && data is Map && data['status'] == 'UP') {
             return;
